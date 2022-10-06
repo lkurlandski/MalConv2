@@ -91,6 +91,7 @@ else:
     
 
 device = torch.device(device_str if torch.cuda.is_available() else "cpu")
+torch.backends.cudnn.enabled = False # BUG FIX
 
 model = MalConvGCT(channels=NUM_CHANNELS, window_size=FILTER_SIZE, stride=FILTER_STRIDE, embd_size=EMBD_SIZE, low_mem=False).to(device)
 
@@ -179,7 +180,7 @@ for epoch in tqdm(range(EPOCHS)):
 
     
     #Have to handle model state special if multi-gpu was used
-    if type(model).__name__ is "DataParallel":
+    if type(model).__name__ == "DataParallel": # BUG FIX
         mstd = model.module.state_dict()
     else:
         mstd = model.state_dict()

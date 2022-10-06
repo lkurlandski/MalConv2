@@ -34,6 +34,7 @@ def dir_path(string):
     else:
         raise NotADirectoryError(string)
 
+torch.backends.cudnn.enabled = False # BUG FIX
 parser = argparse.ArgumentParser(description='Train a MalConv model')
 
 parser.add_argument('--filter_size', type=int, default=512, help='How wide should the filter be')
@@ -179,7 +180,7 @@ for epoch in tqdm(range(EPOCHS)):
 
     
     #Have to handle model state special if multi-gpu was used
-    if type(model).__name__ is "DataParallel":
+    if type(model).__name__ == "DataParallel": # BUG FIX
         mstd = model.module.state_dict()
     else:
         mstd = model.state_dict()

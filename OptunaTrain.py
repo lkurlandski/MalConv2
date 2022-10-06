@@ -73,7 +73,7 @@ elif MODEL_NAME.lower() == "Avast".lower():
 elif MODEL_NAME.lower() == "MalConvML".lower():
     from MalConvML import getParams, initModel
 elif MODEL_NAME.lower() == "MalConvGCT".lower():
-    from MalConvGCT import getParams, initModel
+    from MalConvGCT_nocat import getParams, initModel
 
 
 
@@ -230,7 +230,7 @@ def objective(trial):
 
 
             #Have to handle model state special if multi-gpu was used
-            if type(model).__name__ is "DataParallel":
+            if type(model).__name__ == "DataParallel":
                 mstd = model.module.state_dict()
             else:
                 mstd = model.state_dict()

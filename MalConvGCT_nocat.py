@@ -43,7 +43,7 @@ class MalConvGCT(LowMemConvBase):
         self.embd = nn.Embedding(257, embd_size, padding_idx=0)
         if not log_stride is None:
             stride = 2**log_stride
-        
+        self.stride = stride # BUG FIX
         self.context_net = MalConvML(out_size=channels, channels=channels, window_size=window_size, stride=stride, layers=layers, embd_size=embd_size)
         self.convs = nn.ModuleList([nn.Conv1d(embd_size, channels*2, window_size, stride=stride, bias=True)] + [nn.Conv1d(channels, channels*2, window_size, stride=1, bias=True) for i in range(layers-1)])
         

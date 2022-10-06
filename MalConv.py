@@ -43,7 +43,7 @@ class MalConv(LowMemConvBase):
     
         self.conv_1 = nn.Conv1d(embd_size, channels, window_size, stride=stride, bias=True)
         self.conv_2 = nn.Conv1d(embd_size, channels, window_size, stride=stride, bias=True)
-
+        self.stride = stride # BUG FIX
         
         self.fc_1 = nn.Linear(channels, channels)
         self.fc_2 = nn.Linear(channels, out_size)
