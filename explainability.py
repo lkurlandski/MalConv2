@@ -7,6 +7,7 @@ from collections import OrderedDict
 from copy import deepcopy
 import multiprocessing as mp
 from pathlib import Path
+import pickle
 import sys
 import typing as tp
 
@@ -263,50 +264,188 @@ def forward_function_malconv(model, softmax: bool):
         return lambda x: model(x)[0]
 
 
+def output_captum_results(
+        output_path: Path = None,
+        filenames_tensors: dict = None,
+        filenames_objects: dict = None,
+        verbose: bool = False,
+) -> None:
+    if verbose:
+        for filename, tensor in filenames_tensors.items():
+            print(f"{Path(filename).name}.shape={tensor.shape}")
+            print(f"{Path(filename).name}={tensor}")
+        for filename, obj in filenames_objects.items():
+            print(f"{Path(filename).name}={obj}")
+    if output_path is not None:
+        for filename, tensor in filenames_tensors.items():
+            torch.save(tensor, output_path / filename)
+        for filename, obj in filenames_objects.items():
+            with open(output_path / filename, "wb") as handle:
+                pickle.dump(obj, handle)
+
 def captum_integrated_gradients(
-
-):
-    ...
-
+    forward_func: ForwardFunction,
+    inputs: torch.Tensor,
+    baselines: int,
+    target: int,
+    n_steps: int = 50,
+    output_path: Path = None,
+    verbose: bool = False,
+    **kwargs,
+) -> tp.Tuple[torch.tensor, torch.tensor]:
+    alg = capattr.IntegratedGradients(forward_func)
+    print_section_header(f"{type(alg).__name__}")
+    attributions, delta = alg.attribute(
+        inputs=inputs,
+        baselines=baselines,
+        target=target,
+        n_steps=n_steps,
+        return_convergence_delta=True,
+        **kwargs,
+    )
+    output_captum_results(
+        output_path / f"{type(alg).__name__}",
+        {"attributions.pt": attributions, "delta.pt": delta},
+        {"alg.pickle": alg},
+        verbose=verbose,
+    )
+    return attributions, delta
 
 def captum_layer_integrated_gradients(
-
+        forward_func: ForwardFunction,
+        layer: nn.Module,
+        inputs: torch.Tensor,
+        baselines: int,
+        target: int,
+        n_steps: int = 50,
+        output_path: Path = None,
+        verbose: bool = False,
+        **kwargs,
 ):
-    ...
+    alg = capattr.LayerIntegratedGradients(forward_func, layer)
+    print_section_header(f"{type(alg).__name__}")
+    attributions, delta = alg.attribute(
+        inputs=inputs,
+        baselines=baselines,
+        target=target,
+        n_steps=n_steps,
+        return_convergence_delta=True,
+        **kwargs,
+    )
+    output_captum_results(
+        output_path / f"{type(alg).__name__}",
+        {"attributions.pt": attributions, "delta.pt": delta},
+        {"alg.pickle": alg},
+        verbose=verbose,
+    )
+    return attributions, delta
 
 
 def captum_layer_activation(
-    forward_func: ForwardFunction,
-    layer: nn.Module,
-    inputs: torch.Tensor,
-    verbose: bool = False
+        forward_func: ForwardFunction,
+        layer: nn.Module,
+        inputs: torch.Tensor,
+        output_path: Path = None,
+        verbose: bool = False,
+        **kwargs,
 ):
-    print_section_header("LayerActivation")
     alg = capattr.LayerActivation(forward_func, layer)
-    attrs = alg.attribute(inputs=inputs)
-    if verbose:
-        print(f"{alg=}")
-        print(f"{attrs.shape=}, {attrs=}")
-    return attrs
+    print_section_header(f"{type(alg).__name__}")
+    attributions = alg.attribute(inputs=inputs, **kwargs)
+    output_captum_results(
+        output_path / f"{type(alg).__name__}",
+        {"attributions.pt": attributions},
+        {"alg.pickle": alg},
+        verbose=verbose,
+    )
+    return attributions
 
 
 def captum_feature_permutation(
-
+        forward_func: ForwardFunction,
+        inputs: torch.Tensor,
+        target: int,
+        perturbations_per_eval: int = 1,
+        output_path: Path = None,
+        verbose: bool = False,
+        **kwargs,
 ):
-    ...
+    alg = capattr.FeaturePermutation(forward_func)
+    print_section_header(type(alg).__name__)
+    attributions = alg.attribute(
+        inputs=inputs,
+        target=target,
+        perturbations_per_eval=perturbations_per_eval,
+        show_progress=verbose,
+        **kwargs,
+    )
+    output_captum_results(
+        output_path / f"{type(alg).__name__}",
+        {"attributions.pt": attributions},
+        {"alg.pickle": alg},
+        verbose=verbose
+    )
+    return attributions
 
 
 def captum_feature_ablation(
-
+        forward_func: ForwardFunction,
+        inputs: torch.Tensor,
+        baselines: int,
+        target: int,
+        perturbations_per_eval: int = 1,
+        output_path: Path = None,
+        verbose: bool = False,
+        **kwargs,
 ):
-    ...
+    alg = capattr.FeatureAblation(forward_func)
+    print_section_header(type(alg).__name__)
+    attributions = alg.attribute(
+        inputs=inputs,
+        target=target,
+        baselines=baselines,
+        perturbations_per_eval=perturbations_per_eval,
+        show_progress=verbose,
+        **kwargs,
+    )
+    output_captum_results(
+        output_path / f"{type(alg).__name__}",
+        {"attributions.pt": attributions},
+        {"alg.pickle": alg},
+        verbose=verbose
+    )
+    return attributions
 
 
 def captum_occlusion(
-
+        forward_func: ForwardFunction,
+        inputs: torch.Tensor,
+        baselines: int,
+        target: int,
+        perturbations_per_eval: int = 1,
+        sliding_window_shapes=(10000,),
+        output_path: Path = None,
+        verbose: bool = False,
+        **kwargs,
 ):
-    ...
-
+    alg = capattr.Occlusion(forward_func)
+    print_section_header(type(alg).__name__)
+    attributions = alg.attribute(
+        inputs=inputs,
+        sliding_window_shapes=sliding_window_shapes,
+        baselines=baselines,
+        target=target,
+        perturbations_per_eval=perturbations_per_eval,
+        show_progress=verbose,
+        **kwargs,
+    )
+    output_captum_results(
+        output_path / f"{type(alg).__name__}",
+        {"attributions.pt": attributions},
+        {"alg.pickle": alg},
+        verbose=verbose
+    )
+    return attributions
 
 def captum_shaply_value_sampling(
     forward_function,
@@ -349,72 +488,67 @@ def explain_pretrained_malconv(
     target = 1
     n_steps = 3
     use_softmax = False
-    forward_function = forward_function_malconv(model, use_softmax)
+    layer = getattr(model, layer)
+    forward_func = forward_function_malconv(model, use_softmax)
     if verbose:
         print(f"{baselines=}")
         print(f"{target=}")
         print(f"{n_steps=}")
         print(f"{use_softmax=}")
+        print(f"{layer=}")
 
     if ig:
-        algorithm = capattr.IntegratedGradients(forward_function)
-        print_section_header(type(algorithm).__name__)
-        attributions, delta = algorithm.attribute(
-            inputs=X,
-            baselines=baselines,
-            target=target,
-            n_steps=n_steps,
-            return_convergence_delta=True,
+        captum_integrated_gradients(
+            forward_func,
+            X,
+            baselines,
+            target,
+            n_steps=3,
+            output_path=OUTPUT_PATH,
+            verbose=verbose
         )
-        if verbose:
-            print(f"{algorithm=}")
-            print(f"{delta.shape=}, {delta=}")
-            print(f"{attributions.shape=}, {attributions=}")
 
     if lig:
-        algorithm = capattr.LayerIntegratedGradients(forward_function, getattr(model, layer))
-        print_section_header(type(algorithm).__name__)
-        attributions, delta = algorithm.attribute(
-            inputs=X,
-            baselines=baselines,
-            target=target,
-            n_steps=n_steps,
-            return_convergence_delta=True,
+        captum_layer_integrated_gradients(
+            forward_func,
+            layer,
+            X,
+            baselines,
+            target,
+            n_steps=3,
+            output_path=OUTPUT_PATH,
+            verbose=verbose
         )
-        if verbose:
-            print(f"{algorithm=}")
-            print(f"{delta.shape=}, {delta=}")
-            print(f"{attributions.shape=}, {attributions=}")
 
     if layer_act:
-        captum_layer_activation()
+        captum_layer_activation(
+            forward_func,
+            model.fc_2,
+            X,
+            output_path=OUTPUT_PATH,
+            verbose=verbose
+        )
 
     if feature_perm:
-        algorithm = capattr.FeaturePermutation(forward_function)
-        print_section_header(type(algorithm).__name__)
-        attributions = algorithm.attribute(
-            inputs=X,
-            target=1,
+        captum_feature_permutation(
+            forward_func,
+            X,
+            target,
             perturbations_per_eval=1,
-            show_progress=verbose,
+            output_path=OUTPUT_PATH,
+            verbose=verbose,
         )
-        if verbose:
-            print(f"{algorithm=}")
-            print(f"{len(attributions)} {attributions[0].shape=}, {attributions=}")
 
     if feature_ablt:
-        algorithm = capattr.FeatureAblation(forward_function)
-        print_section_header(type(algorithm).__name__)
-        attributions = algorithm.attribute(
-            inputs=X,
-            baselines=baselines,
-            target=1,
+        captum_feature_ablation(
+            forward_func,
+            X,
+            baselines,
+            target,
             perturbations_per_eval=1,
-            show_progress=verbose,
+            output_path=OUTPUT_PATH,
+            verbose=verbose,
         )
-        if verbose:
-            print(f"{algorithm=}")
-            print(f"{len(attributions)} {attributions[0].shape=}, {attributions=}")
 
     if my_ig:
         print_section_header("Custom Integrated Gradients")
@@ -423,7 +557,7 @@ def explain_pretrained_malconv(
         print(f"{grads=}")
 
     if occ:
-        algorithm = capattr.Occlusion(forward_function)
+        algorithm = capattr.Occlusion(forward_func)
         print_section_header(type(algorithm).__name__)
         attributions = algorithm.attribute(
             inputs=X,
