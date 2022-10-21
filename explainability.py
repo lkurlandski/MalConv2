@@ -2,18 +2,25 @@
 # Fixes RuntimeError: cuDNN error: CUDNN_STATUS_MAPPING_ERROR?
 # Source: https://discuss.pytorch.org/t/when-should-we-set-torch-backends
 # -cudnn-enabled-to-false-especially-for-lstm/106571
-
+import shutil
 from collections import OrderedDict
 from copy import deepcopy
+import gzip
 import multiprocessing as mp
 from pathlib import Path
 import pickle
+from pprint import pformat, pprint
 import random
 import sys
+import tempfile
+import traceback
 import typing as tp
 
 from captum import attr as capattr
+import lief
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from sklearn.metrics import roc_auc_score, classification_report
 import sys
 from tqdm import tqdm
@@ -27,11 +34,8 @@ from binaryLoader import BinaryDataset, RandomChunkSampler, pad_collate_func
 from MalConv import MalConv
 from MalConvGCT_nocat import MalConvGCT
 
-
-random.seed(0)
-
-
-ForwardFunction = tp.Callable[[torch.Tensor], torch.Tensor]
+import captum_explainability as ce
+from utils import batch, section_header
 
 
 # Globals
@@ -50,21 +54,7 @@ MALCONV_PATH = MODELS_PATH / "malconv.checkpoint"
 BATCH_SIZE = 8
 MAX_LEN = int(16000000 / 16)
 
-
-def print_section_header(
-        name: str,
-        start_with_newline: bool = True,
-        underline_length: int = 88
-) -> None:
-    print(("\n" if start_with_newline else "") + f"{name}\n{'-' * underline_length}")
-
-
-# Pytorch
-print_section_header("Pytorch", False)
-device = torch.device('cuda:0' if torch.cuda.is_available() else "cpu")
-torch.backends.cudnn.enabled = False
-print(f"{device=}")
-print(f"{torch.backends.cudnn.enabled=}")
+# device = torch.device('cuda:0' if torch.cuda.is_available() else "cpu")
 
 
 def integrated_gradients(
@@ -172,8 +162,20 @@ def get_datasets(
         n_test: int = None,
         verbose: bool = False
 ) -> tp.Tuple[BinaryDataset, BinaryDataset]:
-    train_dataset = BinaryDataset(WINDOWS_TRAIN_PATH, SOREL_TRAIN_PATH, max_len=MAX_LEN, sort_by_size=False)
-    test_dataset = BinaryDataset(WINDOWS_TEST_PATH, SOREL_TEST_PATH, max_len=MAX_LEN, sort_by_size=False)
+    train_dataset = BinaryDataset(
+        WINDOWS_TRAIN_PATH,
+        SOREL_TRAIN_PATH,
+        max_len=MAX_LEN,
+        sort_by_size=False,
+        shuffle=True
+    )
+    test_dataset = BinaryDataset(
+        WINDOWS_TEST_PATH,
+        SOREL_TEST_PATH,
+        max_len=MAX_LEN,
+        sort_by_size=False,
+        shuffle=True
+    )
     if n_train is not None:
         idx = np.random.choice(len(train_dataset), n_train, replace=False)
         train_dataset = Subset(train_dataset, idx)
@@ -220,12 +222,13 @@ def get_loaders(
 def get_data(
         n_train: int = None,
         n_test: int = None,
-        shuffle: bool = True,
         verbose: bool = False,
 ) -> tp.Tuple[BinaryDataset, BinaryDataset, DataLoader, DataLoader]:
     train_dataset, test_dataset = get_datasets(n_train, n_test, verbose=verbose)
-    train_sampler = RandomChunkSampler(train_dataset, BATCH_SIZE, random=shuffle)
-    test_sampler = RandomChunkSampler(test_dataset, BATCH_SIZE, random=shuffle)
+    # train_sampler = RandomChunkSampler(train_dataset, BATCH_SIZE)
+    # test_sampler = RandomChunkSampler(test_dataset, BATCH_SIZE)
+    train_sampler = None
+    test_sampler = None
     train_loader, test_loader = get_loaders(
         train_dataset,
         test_dataset,
@@ -279,225 +282,6 @@ def forward_function_malconv(model, softmax: bool):
         return lambda x: model(x)[0]
 
 
-def output_captum_results(
-        output_path: Path = None,
-        filenames_tensors: dict = None,
-        filenames_objects: dict = None,
-        verbose: bool = False,
-) -> None:
-    filenames_tensors = {} if filenames_tensors is None else filenames_tensors
-    filenames_objects = {} if filenames_objects is None else filenames_objects
-    if verbose:
-        for filename, tensor in filenames_tensors.items():
-            print(f"{Path(filename).name}.shape={tensor.shape}")
-            print(f"{Path(filename).name}={tensor}")
-        for filename, obj in filenames_objects.items():
-            print(f"{Path(filename).name}={obj}")
-    if output_path is not None:
-        output_path.mkdir(parents=False, exist_ok=True)
-        for filename, tensor in filenames_tensors.items():
-            torch.save(tensor, output_path / filename)
-        for filename, obj in filenames_objects.items():
-            with open(output_path / filename, "wb") as handle:
-                pickle.dump(obj, handle)
-
-
-def captum_integrated_gradients(
-    forward_func: ForwardFunction,
-    inputs: torch.Tensor,
-    baselines: int,
-    target: int,
-    n_steps: int = 50,
-    output_path: Path = None,
-    verbose: bool = False,
-    **kwargs,
-) -> tp.Tuple[torch.tensor, torch.tensor]:
-    alg = capattr.IntegratedGradients(forward_func)
-    print_section_header(f"{type(alg).__name__}")
-    attributions, delta = alg.attribute(
-        inputs=inputs,
-        baselines=baselines,
-        target=target,
-        n_steps=n_steps,
-        return_convergence_delta=True,
-        **kwargs,
-    )
-    output_captum_results(
-        output_path / f"{type(alg).__name__}",
-        {"attributions.pt": attributions, "delta.pt": delta},
-        # {"alg.pickle": alg},
-        verbose=verbose,
-    )
-    return attributions, delta
-
-def captum_layer_integrated_gradients(
-        forward_func: ForwardFunction,
-        layer: nn.Module,
-        inputs: torch.Tensor,
-        baselines: int,
-        target: int,
-        n_steps: int = 50,
-        output_path: Path = None,
-        verbose: bool = False,
-        **kwargs,
-):
-    alg = capattr.LayerIntegratedGradients(forward_func, layer)
-    print_section_header(f"{type(alg).__name__}")
-    attributions, delta = alg.attribute(
-        inputs=inputs,
-        baselines=baselines,
-        target=target,
-        n_steps=n_steps,
-        return_convergence_delta=True,
-        **kwargs,
-    )
-    output_captum_results(
-        output_path / f"{type(alg).__name__}",
-        {"attributions.pt": attributions, "delta.pt": delta},
-        # {"alg.pickle": alg},
-        verbose=verbose,
-    )
-    return attributions, delta
-
-
-def captum_layer_activation(
-        forward_func: ForwardFunction,
-        layer: nn.Module,
-        inputs: torch.Tensor,
-        output_path: Path = None,
-        verbose: bool = False,
-        **kwargs,
-):
-    alg = capattr.LayerActivation(forward_func, layer)
-    print_section_header(f"{type(alg).__name__}")
-    attributions = alg.attribute(inputs=inputs, **kwargs)
-    output_captum_results(
-        output_path / f"{type(alg).__name__}",
-        {"attributions.pt": attributions},
-        # {"alg.pickle": alg},
-        verbose=verbose,
-    )
-    return attributions
-
-
-def captum_feature_permutation(
-        forward_func: ForwardFunction,
-        inputs: torch.Tensor,
-        target: int,
-        perturbations_per_eval: int = 1,
-        output_path: Path = None,
-        verbose: bool = False,
-        **kwargs,
-):
-    alg = capattr.FeaturePermutation(forward_func)
-    print_section_header(type(alg).__name__)
-    attributions = alg.attribute(
-        inputs=inputs,
-        target=target,
-        perturbations_per_eval=perturbations_per_eval,
-        show_progress=verbose,
-        **kwargs,
-    )
-    output_captum_results(
-        output_path / f"{type(alg).__name__}",
-        {"attributions.pt": attributions},
-        # {"alg.pickle": alg},
-        verbose=verbose
-    )
-    return attributions
-
-
-def captum_feature_ablation(
-        forward_func: ForwardFunction,
-        inputs: torch.Tensor,
-        baselines: int,
-        target: int,
-        perturbations_per_eval: int = 1,
-        output_path: Path = None,
-        verbose: bool = False,
-        **kwargs,
-):
-    alg = capattr.FeatureAblation(forward_func)
-    print_section_header(type(alg).__name__)
-    attributions = alg.attribute(
-        inputs=inputs,
-        target=target,
-        baselines=baselines,
-        perturbations_per_eval=perturbations_per_eval,
-        show_progress=verbose,
-        **kwargs,
-    )
-    output_captum_results(
-        output_path / f"{type(alg).__name__}",
-        {"attributions.pt": attributions},
-        # {"alg.pickle": alg},
-        verbose=verbose
-    )
-    return attributions
-
-
-def captum_occlusion(
-        forward_func: ForwardFunction,
-        inputs: torch.Tensor,
-        baselines: int,
-        target: int,
-        perturbations_per_eval: int = 1,
-        sliding_window_shapes=(10000,),
-        output_path: Path = None,
-        verbose: bool = False,
-        **kwargs,
-):
-    alg = capattr.Occlusion(forward_func)
-    print_section_header(type(alg).__name__)
-    attributions = alg.attribute(
-        inputs=inputs,
-        sliding_window_shapes=sliding_window_shapes,
-        baselines=baselines,
-        target=target,
-        perturbations_per_eval=perturbations_per_eval,
-        show_progress=verbose,
-        **kwargs,
-    )
-    output_captum_results(
-        output_path / f"{type(alg).__name__}",
-        {"attributions.pt": attributions},
-        # {"alg.pickle": alg},
-        verbose=verbose
-    )
-    return attributions
-
-
-def captum_shapley_value_sampling(
-        forward_func: ForwardFunction,
-        inputs: torch.Tensor,
-        baselines: int,
-        target: int,
-        n_samples: int = 25,
-        perturbations_per_eval: int = 1,
-        output_path: Path = None,
-        verbose: bool = False,
-        **kwargs,
-):
-    alg = capattr.ShapleyValueSampling(forward_func)
-    print_section_header(type(alg).__name__)
-    attributions = alg.attribute(
-        inputs=inputs,
-        baselines=baselines,
-        target=target,
-        n_samples=n_samples,
-        perturbations_per_eval=perturbations_per_eval,
-        show_progress=verbose,
-        **kwargs,
-    )
-    output_captum_results(
-        output_path / f"{type(alg).__name__}",
-        {"attributions.pt": attributions},
-        # {"alg.pickle": alg},
-        verbose=verbose
-    )
-    return attributions
-
-
 def explain_pretrained_malconv(
         checkpoint_path: Path,
         run_integrated_gradients: bool = False,
@@ -507,259 +291,358 @@ def explain_pretrained_malconv(
         run_feature_ablation: bool = False,
         run_occlusion: bool = False,
         run_shapley_value_sampling: bool = False,
-        layer: str = "fc_2",
+        run_kernel_shap: bool = False,
         output_path: Path = None,
         verbose: bool = False,
-) -> dict:
-    print_section_header("Model & Data")
+) -> None:
+    print(section_header("Model"))
     model = get_model(checkpoint_path, verbose=verbose)
-    train_dataset, _, train_loader, _, train_sampler, _ = get_data(shuffle=True, verbose=verbose)
 
-    loader = iter(train_loader)
-    sampler = iter(train_sampler)
-    X, y = next(loader)
-    file_indices = [next(sampler) for _ in range(BATCH_SIZE)]
+    print(section_header("Data"))
+    train_dataset, _, train_loader, _, train_sampler, _ = get_data(verbose=verbose)
+    # loader = iter(train_loader)
+    # sampler = list(range(len(train_dataset)))
+    # X, y = next(loader)
+    # i = 0
+    # file_indices = sampler[i : i+BATCH_SIZE]
+    # if BATCH_SIZE >= 8: # We can get pos/neg examples in each batch
+    #     while torch.equal(y, torch.ones_like(y)) or torch.equal(y, torch.zeros_like(y)):
+    #         i += BATCH_SIZE
+    #         X, y = next(loader)# [Path(train_dataset.all_files[i][0]).parents[2].name for i in file_indices]
+    #         file_indices = sampler[i : i+BATCH_SIZE]
+    #         print(" ".join([str(i.item()) for i in y]))
+    #         print(" ".join([Path(train_dataset.all_files[i][0]).parents[2].name[0] for i in file_indices]))
+    # else: # Just look for malware, i.e., pos examples
+    #     while not torch.equal(y, torch.ones_like(y)):
+    #         X, y = next(loader)
+    #         file_indices = [next(sampler) for _ in range(BATCH_SIZE)]
+    #
+    # X:torch.Tensor = X.to(device)
+    # y:torch.Tensor = y.to(device)
+    # if verbose:
+    #     print(f"{X.shape=}")
+    #     print(f"{X=}")
+    #     print(f"{y.shape=}")
+    #     print(f"{y=}")
+    # if output_path is not None:
+    #     torch.save(X, output_path / "X.pt")
+    #     torch.save(y, output_path / "y.pt")
+    #     files = [train_dataset.all_files[i][0] + "\n" for i in file_indices]
+    #     with open(output_path / "files.txt", "w") as f:
+    #         f.writelines(files)
 
-    if BATCH_SIZE >= 8: # We can get pos/neg examples in each batch
-        while torch.equal(y, torch.ones_like(y)) or torch.equal(y, torch.zeros_like(y)):
-            X, y = next(loader)
-            file_indices = [next(sampler) for _ in range(BATCH_SIZE)]
-    else: # Just look for malware, i.e., pos examples
-        while not torch.equal(y, torch.ones_like(y)):
-            X, y = next(loader)
-            file_indices = [next(sampler) for _ in range(BATCH_SIZE)]
+    print(section_header("Captum"))
+    forward_functions = {
+        f"{softmax=}": forward_function_malconv(model, softmax)
+        for softmax in (False,)
+    }
+    layers = ["fc_2"] # ["embd", "conv_1", "conv_2", "fc_1","fc_2"]
+    print(pformat(f"forward_functions={list(forward_functions.keys())}"))
+    print(pformat(f"{layers=}"))
 
-    X:torch.Tensor = X.to(device)
-    y:torch.Tensor = y.to(device)
-    if verbose:
-        print(f"{X.shape=}")
-        print(f"{X=}")
-        print(f"{y.shape=}")
-        print(f"{y=}")
-    if output_path is not None:
-        torch.save(X, output_path / "X.pt")
-        torch.save(y, output_path / "y.pt")
-        files = [train_dataset.all_files[i][0] + "\n" for i in file_indices]
-        with open(output_path / "files.txt", "w") as f:
-            f.writelines(files)
+    files = [Path(e[0]) for e in train_dataset.all_files]
+    for (X, _), f in tqdm(zip(train_loader, batch(files, BATCH_SIZE))):
+        X = X.to(device)
+        explain_batch(
+            model,
+            X,
+            f,
+            forward_functions,
+            layers,
+            run_integrated_gradients,
+            run_layer_integrated_gradients,
+            run_layer_activation,
+            run_feature_permutation,
+            run_feature_ablation,
+            run_occlusion,
+            run_shapley_value_sampling,
+            run_kernel_shap,
+            output_path,
+            False,
+        )
 
-    print_section_header("Captum")
-    baselines = 256
-    target = 1
-    n_steps = 3
-    use_softmax = False
-    layer = getattr(model, layer)
-    forward_func = forward_function_malconv(model, use_softmax)
-    if verbose:
-        print(f"{baselines=}")
-        print(f"{target=}")
-        print(f"{n_steps=}")
-        print(f"{use_softmax=}")
-        print(f"{layer=}")
+
+def explain_batch(
+        model: nn.Module,
+        X: torch.tensor,
+        files: tp.List[Path],
+        forward_functions: tp.Dict[str, tp.Callable],
+        layers: tp.List[nn.Module],
+        run_integrated_gradients: bool = False,
+        run_layer_integrated_gradients: bool = False,
+        run_layer_activation: bool = False,
+        run_feature_permutation: bool = False,
+        run_feature_ablation: bool = False,
+        run_occlusion: bool = False,
+        run_shapley_value_sampling: bool = False,
+        run_kernel_shap: bool = False,
+        output_path: Path = None,
+        verbose: bool = False,
+) -> None:
 
     if run_integrated_gradients:
-        try:
-            captum_integrated_gradients(
-                forward_func,
-                X,
-                baselines,
-                target,
-                n_steps=3,
-                output_path=output_path,
-                verbose=verbose
-            )
-        except Exception as e:
-            print("-" * 40 + " ERROR " + "-" * 40)
-            print(e)
+        print(section_header("IntegratedGradients"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "IntegratedGradients" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            ce.integrated_gradients(forward_func, X, files, output_path_, verbose)
 
     if run_layer_integrated_gradients:
-        try:
-            captum_layer_integrated_gradients(
-                forward_func,
-                layer,
-                X,
-                baselines,
-                target,
-                n_steps=3,
-                output_path=output_path,
-                verbose=verbose
-            )
-        except Exception as e:
-            print("-" * 40 + " ERROR " + "-" * 40)
-            print(e)
+        print(section_header("LayerIntegratedGradients"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            for layer in layers:
+                output_path_ = output_path / "LayerIntegratedGradients" / name / layer
+                output_path_.mkdir(exist_ok=True, parents=True)
+                ce.layer_integrated_gradients(forward_func, getattr(model, layer), X, files, output_path_, verbose)
 
     if run_layer_activation:
-        try:
-            captum_layer_activation(
-                forward_func,
-                model.fc_2,
-                X,
-                output_path=output_path,
-                verbose=verbose
-            )
-        except Exception as e:
-            print("-" * 40 + " ERROR " + "-" * 40)
-            print(e)
+        print(section_header("LayerActivation"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            for layer in layers:
+                output_path_ = output_path / "LayerActivation" / name / layer
+                output_path_.mkdir(exist_ok=True, parents=True)
+                ce.layer_activation(forward_func, getattr(model, layer), X, files, output_path_, verbose)
 
     if run_feature_permutation:
-        try:
-            captum_feature_permutation(
-                forward_func,
-                X,
-                target,
-                perturbations_per_eval=1,
-                output_path=output_path,
-                verbose=verbose,
-            )
-        except Exception as e:
-            print("-" * 40 + " ERROR " + "-" * 40)
-            print(e)
+        print(section_header("FeaturePermutation"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "FeaturePermutation" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            ce.feature_permutation(forward_func, X, files, output_path_, verbose)
 
     if run_feature_ablation:
-        try:
-            mask_size = 100
-            q, r = divmod(X.shape[1], mask_size)
-            feature_mask = torch.cat([torch.full((mask_size,), i) for i in range(q)])
-            feature_mask = torch.cat([feature_mask, torch.full((r,), q)])
-            feature_mask = torch.cat([feature_mask.unsqueeze(0) for _ in range(BATCH_SIZE)], 0)
-            feature_mask = feature_mask.type(torch.int64).to(device)
-            softmax = False
-            (output_path / f"{softmax=}").mkdir(exist_ok=True)
-            captum_feature_ablation(
-                forward_function_malconv(model, softmax),
-                X,
-                baselines,
-                target,
-                perturbations_per_eval=1,
-                output_path=(output_path / f"{softmax=}"),
-                verbose=verbose,
-                feature_mask=feature_mask,
-            )
-            softmax = True
-            (output_path / f"{softmax=}").mkdir(exist_ok=True)
-            captum_feature_ablation(
-                forward_function_malconv(model, softmax),
-                X,
-                baselines,
-                target,
-                perturbations_per_eval=1,
-                output_path=(output_path / f"{softmax=}"),
-                verbose=verbose,
-                feature_mask=feature_mask,
-            )
-        except Exception as e:
-            print("-" * 40 + " ERROR " + "-" * 40)
-            print(e)
-            raise e
+        print(section_header("FeatureAblation"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "FeatureAblation" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            ce.captum_feature_ablation(forward_func, X, files, output_path_, verbose)
 
     if run_occlusion:
-        try:
-            captum_occlusion(
-                forward_func,
-                X,
-                baselines,
-                target,
-                perturbations_per_eval=1,
-                sliding_window_shapes=(10000,),
-                output_path=output_path,
-                verbose=verbose,
-            )
-        except Exception as e:
-            print("-" * 40 + " ERROR " + "-" * 40)
-            print(e)
+        print(section_header("Occlusion"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "Occlusion" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            ce.occlusion(forward_func, X, files, output_path_, verbose)
 
     if run_shapley_value_sampling:
-        try:
-            captum_shapley_value_sampling(
-                forward_func,
-                X,
-                baselines,
-                target,
-                n_samples=25,
-                perturbations_per_eval=1,
-                output_path=output_path,
-                verbose=verbose,
-            )
-        except Exception as e:
-            print("-" * 40 + " ERROR " + "-" * 40)
-            print(e)
+        print(section_header("ShapleyValueSampling"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "ShapleyValueSampling" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            ce.shapley_value_sampling(forward_func, X, files, output_path_, verbose)
 
-    # if my_ig:
-    #     print_section_header("Custom Integrated Gradients")
-    #     grads = integrated_gradients(model, X, 1, 256, 3)
-    #     print(f"{grads.shape=}")
-    #     print(f"{grads=}")
-
-    # if my_lig:
-    #     pass
-        # print_section_header("Custom Layer Integrated Gradients")
-        # X_embedded = model.embd(X.type(torch.int64))
-        # print(f"{X_embedded.shape=}")
-        # print(f"{X_embedded=}")
-        # baselines = model.embd(256 * torch.ones_like(X[0]).type(torch.int64))
-        # print(f"{baselines.shape=}")
-        # print(f"{baselines=}")
-        # model = ExMalConvGCT(channels=256, window_size=256, stride=64)
-        # model.load_state_dict(state['model_state_dict'], strict=False)
-        # model.to(device)
-        # model.eval()
-        # grads = layer_integrated_gradients(model, X, X_embedded, 1, baselines, 3)
-        # print(f"{grads.shape=}")
-        # print(f"{grads=}")
+    if run_kernel_shap:
+        print(section_header("KernelShap"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "KernelShap" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            ce.kernel_shap(forward_func, X, files, output_path_, verbose)
 
 
-def process_attributions(
-        attributions: tp.Union[Path, torch.Tensor],
-        verbose: bool = False,
+def analyze_explainability_data(output_path: Path, methods: tp.Iterable[str] = None):
+    with open(output_path / "files.txt", "r") as file:
+        files = file.readlines()
+    files = [Path(f.strip("\n")).name for f in files]
+    for attr_file in output_path.rglob("attributions.pt"):
+        if methods and not any(m in [p.name for p in attr_file.parents] for m in methods):
+            continue
+        local_path = attr_file.parent
+        attrs = torch.load(attr_file, map_location=torch.device("cpu"))
+        sorted_, indices = torch.sort(attrs, descending=True)
+        sorted_ = sorted_.cpu().numpy()
+        indices = indices.cpu().numpy()
+        for s, i, f in zip(sorted_, indices, files):
+            fig, ax = plt.subplots()
+            ax.plot(x=i, y=s)
+            fig.savefig()
+            val_ind = np.stack((s, i), 1)
+            np.savetxt((local_path / f).with_suffix(".txt"), val_ind, fmt=["%.18e", "%i"])
+
+
+def read_binary(file: Path, mode: str = "rb"):
+    try:
+        with gzip.open(file, mode) as f:
+            x = f.read(MAX_LEN)
+    except OSError:
+        with open(file, mode) as f:
+            x = f.read(MAX_LEN)
+    x = np.frombuffer(x, dtype=np.uint8).astype(np.int16) + 1
+    return x
+
+
+def build_corpora(checkpoint_path: Path, output_path: Path):
+    print(section_header("Building Corpora"))
+
+    model = get_model(checkpoint_path)
+    train_dataset, _, train_loader, _, train_sampler, _ = get_data()
+    forward_func = forward_function_malconv(model, False)
+    alg = capattr.KernelShap(forward_func)
+    mask_size = 512
+    max_hash_evasion = 10
+
+    divisions = ("malicious", "benign")
+    for d in divisions:
+        (output_path / d).mkdir(exist_ok=True)
+
+    skip_until_file = "e0fc92b75a4ef2c0003d8a0bc4c9f2dae6dbf6d20ce700ea21fd75d3"
+    skip = False
+
+    for i, (X, y) in enumerate(tqdm(train_loader)):
+        X, y = X.to(device), y.to(device)
+        file_indices = list(range(i * BATCH_SIZE, (i + 1) * BATCH_SIZE))[0:X.shape[0]]
+        files = [Path(train_dataset.all_files[i][0]) for i in file_indices]
+        feature_mask = ce.get_feature_mask(X, mask_size=mask_size)[0].unsqueeze(0)
+        for f, x in zip(files, X):
+            if f.stem == skip_until_file:
+                skip = False
+            if skip:
+                continue
+            # Read the file's bytes
+            binary = read_binary(f)
+            # Get the attributions
+            attributions = alg.attribute(
+                inputs=x.unsqueeze(0),
+                baselines=ce.baseline,
+                target=1,
+                feature_mask=feature_mask
+            )[0]
+            # Divide into malicious and benign regions
+            malicious_regions, benign_regions = [], []
+            for j in range(0, (binary.shape[0] // mask_size) * mask_size + 1, mask_size):
+                b = j
+                e = min(j + mask_size, binary.shape[0])
+                if e != b:
+                    if attributions[j].item() > 0:
+                        malicious_regions.append((b, e))
+                    elif attributions[j].item() < 0:
+                        benign_regions.append((b, e))
+            # Write the malicious and benign snippets to files
+            for r, d in zip((malicious_regions, benign_regions), divisions):
+                for j, (b, e) in enumerate(r):
+                    binary_section = (binary[b:e] - 1).astype(np.uint8)
+                    # Switch directories to avoid hashing collisions
+                    for i in range(max_hash_evasion):
+                        path = output_path / d / str(i) / f"{f.name}_{j}.bin"
+                        path.parent.mkdir(exist_ok=True)
+                        try:
+                            binary_section.tofile(path)
+                            break
+                        except OSError as error:
+                            continue
+                        print(f"Failed to place: {path.name}")
+                        print(error)
+
+
+def code_section_offset_bounds(f: Path):
+    binary = lief.parse(f.as_posix())
+
+    try:
+        section = binary.get_section(".text")
+    except lief.not_found as e:
+        print(f"No .text section found for {f.as_posix()}")
+        print("Sections found:")
+        pprint([s.name for s in binary.sections])
+        raise e
+
+    return section.offset, section.offset + section.size
+
+
+def build_corpora_fixed_chunk_size(
+        output_path: Path,
+        attributions_path: Path,
+        corpora_path: Path,
+        chunk_size: int,
 ):
-    if isinstance(attributions, (str, Path)):
-        attributions = torch.load(attributions)
+    print(section_header("Building Corpora"))
 
-    if verbose:
-        print(f"{attributions.shape=}")
+    train_dataset, _, train_loader, _, train_sampler, _ = get_data()
+    max_hash_evasion = 10
 
+    hyperparam_path = attributions_path.relative_to(output_path)
+    corpora_path = corpora_path / hyperparam_path
 
-
-def main():
-
-    # evaluate_pretrained_malconv(MALCONV_GCT_PATH, 100, verbose=True)
-    # evaluate_pretrained_malconv(MALCONV_PATH, 100, verbose=True)
-
-    # process_attributions("outputs/1/FeaturePermutation/attributions.pt", verbose=True)
-    # sys.exit()
-
-    malconv_layers = [
-        "embd", # 0
-        "conv_1", # 1
-        "conv_2", # 2
-        "fc_1", # 3
-        "fc_2" # 4
-    ]
-
-    malconv_gct_layers = [
-        "embd", # 0
-        "context_net", # 1
-        "convs", # 2
-        "linear_atn", # 3
-        "convs_share", # 4
-        "fc_1", # 5
-        "fc_2", # 6
-    ]
-
-    explain_pretrained_malconv(
-        MALCONV_PATH,
-        run_integrated_gradients=True,
-        run_layer_integrated_gradients=True,
-        run_layer_activation=True,
-        # run_feature_permutation=True,
-        run_feature_ablation=True,
-        # run_occlusion=True,
-        # run_shapley_value_sampling=True,
-        layer=malconv_layers[4],
-        output_path=Path("outputs/3"),
-        verbose=True,
-    )
+    binary_files = [Path(e[0]) for e in train_dataset.all_files]
+    for f in binary_files: #tqdm(binary_files):
+        if f.stat().st_size == 0:   # Ignore empty files
+            continue
+        # Saved attributions tensor
+        attributions = torch.load(
+            (attributions_path / f.name).with_suffix(".pt"),
+            map_location=torch.device("cpu")
+        )
+        # Byte-view of the binary
+        binary = read_binary(f)
+        # .text section bounds to produce the snippets from
+        try:
+            lower, upper = code_section_offset_bounds(f)
+        except lief.not_found:  # code section could not be located
+            continue
+        print(f.as_posix())
+        # Identify malicious and benign regions, save snippets to file
+        for j in range(0, (binary.shape[0] // chunk_size) * chunk_size + 1, chunk_size):
+            # Beginning and end regions to consider
+            b = j
+            e = min(j + chunk_size, binary.shape[0])
+            # Skip if outside the binary's code section or zero-length slice
+            if b == e or b < lower or e > upper:
+                continue
+            # Section of binary corresponding to the snippet
+            binary_section = (binary[b:e] - 1).astype(np.uint8)
+            # Whether snippet is malicious-looking or benign-looking
+            if attributions[j].item() > 0:
+                division = "malicious"
+            elif attributions[j].item() < 0:
+                division = "benign"
+            # Save the snippet
+            for i in range(max_hash_evasion):
+                path = corpora_path / division / str(i) / f"{f.name}_{b}_{e}.bin"
+                path.parent.mkdir(exist_ok=True, parents=True)
+                try:
+                    binary_section.tofile(path)
+                    break
+                except OSError:
+                    continue
+                print(f"Failed to place: {path.name}")
+                print(error)
 
 
 if __name__ == "__main__":
-    main()
+
+    random.seed(0)
+    print(section_header("Pytorch", False))
+    device = torch.device('cuda:0' if torch.cuda.is_available() else "cpu")
+    torch.backends.cudnn.enabled = False
+    print(f"{device=}")
+    print(f"{torch.backends.cudnn.enabled=}")
+
+    output_path = Path("outputs/7")
+    # explain_pretrained_malconv(
+    #     MALCONV_PATH,
+    #     # run_integrated_gradients=True,
+    #     # run_layer_integrated_gradients=True,
+    #     # run_layer_activation=True,
+    #     # run_feature_permutation=True,
+    #     # run_feature_ablation=True,
+    #     # run_occlusion=True,
+    #     # run_shapley_value_sampling=True,
+    #     run_kernel_shap=True,
+    #     output_path=output_path,
+    #     verbose=True,
+    # )
+
+    attributions_path = Path("outputs/7/KernelShap/softmax=False/<class 'torch.Tensor'>/50/1/attributions")
+    corpora_path = Path("/home/lk3591/Documents/datasets/MachineCodeTranslation/")
+    build_corpora_fixed_chunk_size(
+        output_path,
+        attributions_path,
+        corpora_path,
+        256,
+    )

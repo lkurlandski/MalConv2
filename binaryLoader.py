@@ -28,7 +28,7 @@ class BinaryDataset(data.Dataset):
     
     TODO: Auto un-gzip files if they have g-zip compression 
     """
-    def __init__(self, good_dir, bad_dir, sort_by_size=False, max_len=4000000):
+    def __init__(self, good_dir, bad_dir, sort_by_size=False, max_len=4000000, shuffle=False):
         
         #Tuple (file_path, label, file_size)
         self.all_files = []
@@ -46,6 +46,9 @@ class BinaryDataset(data.Dataset):
                 
         if sort_by_size:
             self.all_files.sort(key=lambda filename: filename[2])
+
+        if shuffle:
+            random.shuffle(self.all_files)
 
     def __len__(self):
         return len(self.all_files)
