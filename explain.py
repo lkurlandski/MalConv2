@@ -4,6 +4,7 @@
 
 from pathlib import Path
 import pickle
+from pprint import pformat
 import traceback
 import typing as tp
 
@@ -17,17 +18,21 @@ from captum.attr import (
     Occlusion,
     ShapleyValueSampling,
 )
+from tqdm import tqdm
 import torch
+from torch.autograd import grad
 import torch.nn as nn
+import torch.nn.functional as F
 
-from utils import section_header, error_line
+from MalConvGCT_nocat import MalConvGCT
+
+from classifier import get_model, get_data, forward_function_malconv, MALCONV_PATH
+from config import device
+from utils import batch, error_line, section_header
 
 
 ForwardFunction = tp.Callable[[torch.Tensor], torch.Tensor]
-
-
-device = torch.device('cuda:0' if torch.cuda.is_available() else "cpu")
-baseline = 0
+BASELINE = 0
 
 
 def get_feature_mask(
@@ -117,7 +122,7 @@ def integrated_gradients(
             try:
                 attributions, delta = alg.attribute(
                     inputs=inputs,
-                    baselines=baseline,
+                    baselines=BASELINE,
                     target=1,
                     n_steps=n_steps,
                     method=method,
@@ -157,7 +162,7 @@ def layer_integrated_gradients(
             try:
                 attributions, delta = alg.attribute(
                     inputs=inputs,
-                    baselines=baseline,
+                    baselines=BASELINE,
                     target=1,
                     n_steps=n_steps,
                     method=method,
@@ -224,7 +229,7 @@ def captum_feature_ablation(
             try:
                 attributions = alg.attribute(
                     inputs=inputs,
-                    baselines=baseline,
+                    baselines=BASELINE,
                     target=1,
                     feature_mask=feature_mask,
                     perturbations_per_eval=perturbations_per_eval,
@@ -306,7 +311,7 @@ def occlusion(
                         inputs=inputs,
                         sliding_window_shapes=sliding_window_shapes,
                         strides=strides,
-                        baselines=baseline,
+                        baselines=BASELINE,
                         target=1,
                         perturbations_per_eval=perturbations_per_eval,
                         show_progress=verbose,
@@ -347,7 +352,7 @@ def shapley_value_sampling(
                 try:
                     attributions = alg.attribute(
                         inputs=inputs,
-                        baselines=baseline,
+                        baselines=BASELINE,
                         target=1,
                         feature_mask=feature_mask,
                         n_samples=n_samples,
@@ -392,7 +397,7 @@ def kernel_shap(
                     try:
                         attributions = alg.attribute(
                             inputs=inputs[i].unsqueeze(0),
-                            baselines=baseline,
+                            baselines=BASELINE,
                             target=1,
                             feature_mask=feature_mask,
                             n_samples=n_samples,
@@ -410,3 +415,205 @@ def kernel_shap(
                         print(e)
                         traceback.print_exc()
                         print(error_line())
+
+
+def integrated_gradients(
+        model: MalConvGCT,
+        inputs: torch.Tensor,
+        target: int = 1,
+        baseline: int = BASELINE,
+        m: int = 3,
+) -> torch.Tensor:
+    """Run the integrated gradients algorithm over a batch of inputs.
+
+    Args:
+        inputs: a batch of inputs
+        target: the target class
+        baseline: baseline to compute gradient w.r. to
+        m: number of steps in the Riemman approximation (should be between 30 and 200)
+
+    Returns:
+        Integrated gradients for each feature corresponding to every input in inputs
+
+    Notes:
+        Inspired by code from
+        https://towardsdatascience.com/integrated-gradients-from-scratch-b46311e4ab4
+    """
+    # Gradients corresponding to each example in inputs
+    grads = []
+    for inp in inputs:
+        # Gets every scaled feature inside the call to F(.)
+        scaled_features = torch.cat(
+            [baseline + (k / m) * (inp.unsqueeze(0) - baseline) for k in range(m + 1)], dim=0
+        ).requires_grad_()
+        # Compute the outputs
+        outputs = model(scaled_features)[0]
+        # Probabilities that examples belongs to target class
+        pred_probas = F.softmax(outputs, dim=-1)[:, target]
+        # Compute the gradients
+        g = grad(outputs=torch.unbind(pred_probas), inputs=scaled_features)
+        if len(g) > 1:
+            raise ValueError(f"Expected single tensor from grad, not {len(g)} tensors")
+        else:
+            g = g[0]
+        # Summation
+        g = g.sum(dim=0)
+        # Multiply by factors outside the summation
+        g = (1 / m) * (inp - baseline) * g
+        # Add to list
+        grads.append(g)
+    # Group into tensor corresponding to inputs
+    grads = torch.cat([t.unsqueeze(0) for t in grads])
+    return grads
+
+
+def explain_batch(
+        model: nn.Module,
+        X: torch.tensor,
+        files: tp.List[Path],
+        forward_functions: tp.Dict[str, tp.Callable],
+        layers: tp.List[nn.Module],
+        run_integrated_gradients: bool = False,
+        run_layer_integrated_gradients: bool = False,
+        run_layer_activation: bool = False,
+        run_feature_permutation: bool = False,
+        run_feature_ablation: bool = False,
+        run_occlusion: bool = False,
+        run_shapley_value_sampling: bool = False,
+        run_kernel_shap: bool = False,
+        output_path: Path = None,
+        verbose: bool = False,
+) -> None:
+
+    if run_integrated_gradients:
+        print(section_header("IntegratedGradients"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "IntegratedGradients" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            integrated_gradients(forward_func, X, files, output_path_, verbose)
+
+    if run_layer_integrated_gradients:
+        print(section_header("LayerIntegratedGradients"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            for layer in layers:
+                output_path_ = output_path / "LayerIntegratedGradients" / name / layer
+                output_path_.mkdir(exist_ok=True, parents=True)
+                layer_integrated_gradients(forward_func, getattr(model, layer), X, files, output_path_, verbose)
+
+    if run_layer_activation:
+        print(section_header("LayerActivation"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            for layer in layers:
+                output_path_ = output_path / "LayerActivation" / name / layer
+                output_path_.mkdir(exist_ok=True, parents=True)
+                layer_activation(forward_func, getattr(model, layer), X, files, output_path_, verbose)
+
+    if run_feature_permutation:
+        print(section_header("FeaturePermutation"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "FeaturePermutation" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            feature_permutation(forward_func, X, files, output_path_, verbose)
+
+    if run_feature_ablation:
+        print(section_header("FeatureAblation"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "FeatureAblation" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            captum_feature_ablation(forward_func, X, files, output_path_, verbose)
+
+    if run_occlusion:
+        print(section_header("Occlusion"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "Occlusion" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            occlusion(forward_func, X, files, output_path_, verbose)
+
+    if run_shapley_value_sampling:
+        print(section_header("ShapleyValueSampling"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "ShapleyValueSampling" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            shapley_value_sampling(forward_func, X, files, output_path_, verbose)
+
+    if run_kernel_shap:
+        print(section_header("KernelShap"))
+        for name, forward_func in forward_functions.items():
+            print(f"forward_func_name={name}")
+            output_path_ = output_path / "KernelShap" / name
+            output_path_.mkdir(exist_ok=True, parents=True)
+            kernel_shap(forward_func, X, files, output_path_, verbose)
+
+
+def explain_pretrained_malconv(
+        checkpoint_path: Path,
+        run_integrated_gradients: bool = False,
+        run_layer_integrated_gradients: bool = False,
+        run_layer_activation: bool = False,
+        run_feature_permutation: bool = False,
+        run_feature_ablation: bool = False,
+        run_occlusion: bool = False,
+        run_shapley_value_sampling: bool = False,
+        run_kernel_shap: bool = False,
+        output_path: Path = None,
+        verbose: bool = False,
+) -> None:
+    print(section_header("Model"))
+    model = get_model(checkpoint_path, verbose=verbose)
+
+    print(section_header("Data"))
+    train_dataset, _, train_loader, _, train_sampler, _ = get_data(verbose=verbose)
+
+    print(section_header("Captum"))
+    forward_functions = {
+        f"{softmax=}": forward_function_malconv(model, softmax)
+        for softmax in (False,)
+    }
+    layers = ["fc_2"] # ["embd", "conv_1", "conv_2", "fc_1","fc_2"]
+    print(pformat(f"forward_functions={list(forward_functions.keys())}"))
+    print(pformat(f"{layers=}"))
+
+    files = [Path(e[0]) for e in train_dataset.all_files]
+    for (X, _), f in tqdm(zip(train_loader, batch(files, train_loader.batch_size))):
+        X = X.to(device)
+        explain_batch(
+            model,
+            X,
+            f,
+            forward_functions,
+            layers,
+            run_integrated_gradients,
+            run_layer_integrated_gradients,
+            run_layer_activation,
+            run_feature_permutation,
+            run_feature_ablation,
+            run_occlusion,
+            run_shapley_value_sampling,
+            run_kernel_shap,
+            output_path,
+            False,
+        )
+
+
+if __name__ == "__main__":
+    output_path = Path("outputs/8")
+    explain_pretrained_malconv(
+        MALCONV_PATH,
+        # run_integrated_gradients=True,
+        # run_layer_integrated_gradients=True,
+        # run_layer_activation=True,
+        # run_feature_permutation=True,
+        # run_feature_ablation=True,
+        # run_occlusion=True,
+        # run_shapley_value_sampling=True,
+        run_kernel_shap=True,
+        output_path=output_path,
+        verbose=True,
+    )

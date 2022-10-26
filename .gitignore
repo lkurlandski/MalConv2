@@ -1,0 +1,6 @@
+.idea/
+MalConv.db
+MalConvGCT.db
+MalConv_channels_128_filterSize_512_stride_512_embdSize_8/
+__pycache__/
+outputs/
