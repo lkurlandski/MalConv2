@@ -10,6 +10,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, classification_report
 from tqdm import tqdm
 import torch
+from torch import Tensor
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset, Subset
 
@@ -18,6 +19,7 @@ from MalConv import MalConv
 from MalConvGCT_nocat import MalConvGCT
 
 from config import device
+from typing_ import Pathlike
 
 
 DATASET_PATH = Path("/home/lk3591/Documents/datasets")
@@ -31,7 +33,10 @@ MODELS_PATH = Path("models")
 MALCONV_GCT_PATH = MODELS_PATH / "malconvGCT_nocat.checkpoint"
 MALCONV_PATH = MODELS_PATH / "malconv.checkpoint"
 BATCH_SIZE = 8
-MAX_LEN = int(16000000 / 16)
+MAX_LEN = 1000000  # 16000000 was used by the original authors
+PAD_VALUE = 0
+
+MalConvLike = tp.Union[MalConv, MalConvGCT]
 
 
 def forward_function_malconv(model, softmax: bool):
@@ -41,13 +46,18 @@ def forward_function_malconv(model, softmax: bool):
         return lambda x: model(x)[0]
 
 
+def confidence_scores(model: tp.Union[MalConv, MalConvGCT], X: Tensor) -> Tensor:
+    return F.softmax(model(X)[0], dim=-1).data[:, 1].detach().cpu().numpy().ravel()
+
+
 def get_model(checkpoint_path: Path, verbose: bool = False):
+    torch.rand(4).to(device)
     if checkpoint_path.name == MALCONV_GCT_PATH.name:
         model = MalConvGCT(channels=256, window_size=256, stride=64)
     elif checkpoint_path.name == MALCONV_PATH.name:
         model = MalConv()
-    state = torch.load(checkpoint_path)
-    model.load_state_dict(state['model_state_dict'], strict=False)
+    state = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(state["model_state_dict"], strict=False)
     model.to(device)
     model.eval()
     if verbose:
@@ -55,25 +65,23 @@ def get_model(checkpoint_path: Path, verbose: bool = False):
     return model
 
 
-def get_datasets(
-        n_train: int = None,
-        n_test: int = None,
-        verbose: bool = False
+def _get_datasets(
+    train_good_dir: Pathlike,
+    train_bad_dir: Pathlike,
+    test_good_dir: Pathlike,
+    test_bad_dir: Pathlike,
+    max_len: int,
+    n_train: int = None,
+    n_test: int = None,
+    verbose: bool = False,
 ) -> tp.Tuple[BinaryDataset, BinaryDataset]:
     train_dataset = BinaryDataset(
-        WINDOWS_TRAIN_PATH,
-        SOREL_TRAIN_PATH,
-        max_len=MAX_LEN,
-        sort_by_size=False,
-        shuffle=True
+        train_good_dir, train_bad_dir, max_len=max_len, sort_by_size=False, shuffle=True
     )
     test_dataset = BinaryDataset(
-        WINDOWS_TEST_PATH,
-        SOREL_TEST_PATH,
-        max_len=MAX_LEN,
-        sort_by_size=False,
-        shuffle=True
+        test_good_dir, test_bad_dir, max_len=max_len, sort_by_size=False, shuffle=True
     )
+    # TODO: these features may be broken...
     if n_train is not None:
         idx = np.random.choice(len(train_dataset), n_train, replace=False)
         train_dataset = Subset(train_dataset, idx)
@@ -88,24 +96,25 @@ def get_datasets(
     return train_dataset, test_dataset
 
 
-def get_loaders(
-        train_dataset: Dataset,
-        test_dataset: Dataset,
-        train_sampler: RandomChunkSampler = None,
-        test_sampler: RandomChunkSampler = None,
-        verbose: bool = False,
+def _get_loaders(
+    train_dataset: Dataset,
+    test_dataset: Dataset,
+    batch_size: int,
+    train_sampler: RandomChunkSampler = None,
+    test_sampler: RandomChunkSampler = None,
+    verbose: bool = False,
 ) -> tp.Tuple[DataLoader, DataLoader, RandomChunkSampler, RandomChunkSampler]:
     loader_threads = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1)
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         num_workers=loader_threads,
         collate_fn=pad_collate_func,
         sampler=train_sampler,
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         num_workers=loader_threads,
         collate_fn=pad_collate_func,
         sampler=test_sampler,
@@ -118,29 +127,49 @@ def get_loaders(
 
 
 def get_data(
-        n_train: int = None,
-        n_test: int = None,
-        verbose: bool = False,
+    train_good_dir: Pathlike = WINDOWS_TRAIN_PATH,
+    train_bad_dir: Pathlike = SOREL_TRAIN_PATH,
+    test_good_dir: Pathlike = WINDOWS_TEST_PATH,
+    test_bad_dir: Pathlike = SOREL_TEST_PATH,
+    max_len: int = MAX_LEN,
+    batch_size: int = BATCH_SIZE,
+    n_train: int = None,
+    n_test: int = None,
+    verbose: bool = False,
 ) -> tp.Tuple[BinaryDataset, BinaryDataset, DataLoader, DataLoader]:
-    train_dataset, test_dataset = get_datasets(n_train, n_test, verbose=verbose)
-    # train_sampler = RandomChunkSampler(train_dataset, BATCH_SIZE)
-    # test_sampler = RandomChunkSampler(test_dataset, BATCH_SIZE)
-    train_sampler = None
-    test_sampler = None
-    train_loader, test_loader = get_loaders(
+    train_dataset, test_dataset = _get_datasets(
+        train_good_dir,
+        train_bad_dir,
+        test_good_dir,
+        test_bad_dir,
+        max_len,
+        n_train,
+        n_test,
+        verbose=verbose,
+    )
+    # If samplers are provided, the input order of the data is not consistent
+    train_sampler = RandomChunkSampler(train_dataset, batch_size) if False else None
+    test_sampler = RandomChunkSampler(test_dataset, batch_size) if False else None
+    train_loader, test_loader = _get_loaders(
         train_dataset,
         test_dataset,
+        batch_size,
         train_sampler,
         test_sampler,
         verbose=verbose,
     )
-    return train_dataset, test_dataset, train_loader, test_loader, train_sampler, test_sampler
+    return (
+        train_dataset,
+        test_dataset,
+        train_loader,
+        test_loader,
+        train_sampler,
+        test_sampler,
+    )
 
 
 def evaluate_pretrained_malconv(
-        checkpoint_path: Path,
-        n_test: int = None,
-        verbose: bool = False
+    checkpoint_path: Path, n_test: int = None, verbose: bool = False
 ) -> None:
     model = get_model(checkpoint_path, verbose=verbose)
     _, _, _, test_loader, _, _ = get_data(n_test=n_test, verbose=verbose)

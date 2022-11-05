@@ -2,9 +2,14 @@
 
 """
 
+from contextlib import redirect_stdout, redirect_stderr
+import pefile
 import gzip
+import os
 from pathlib import Path
 from pprint import pprint
+import sys
+import typing as tp
 
 import capstone as cs
 import lief
@@ -13,44 +18,77 @@ import torch
 
 from utils import section_header
 
-from classifier import get_data, MAX_LEN
+from classifier import get_data
+from executable_helper import read_binary
 
 
-def read_binary(file: Path, mode: str = "rb"):
-    try:
-        with gzip.open(file, mode) as f:
-            x = f.read(MAX_LEN)
-    except OSError:
-        with open(file, mode) as f:
-            x = f.read(MAX_LEN)
-    x = np.frombuffer(x, dtype=np.uint8).astype(np.int16) + 1
-    return x
-
-
-def code_section_offset_bounds(f: Path):
+# TODO: remove this asset, as it has been replaced by executable_helper.text_section_bounds
+def code_section_offset_bounds(
+    f: Path, errors: str = "raise", silence_lief: bool = True
+):
     """
     Returns the lower and upper bounds of the .text section in the PE file.
+
+    # TODO: use lief characteristics to identify code sections, instead of the name ".text"
     """
-    binary = lief.parse(f.as_posix())
+    if f.stat().st_size == 0:  # Ignore empty files
+        if errors == "raise":
+            raise ValueError(f"File is Empty: {f.name}")
+        elif errors == "warn":
+            print(f"Warning: file is empty: {f.name} ")
+            return None, None
+        elif errors == "ignore":
+            return None, None
+
+    if silence_lief:  # Doesn't work, unfortunately
+        with open(os.devnull, "w") as redirect:
+            with redirect_stdout(redirect), redirect_stderr(redirect):
+                binary = lief.parse(f.as_posix())
+    else:
+        binary = lief.parse(f.as_posix())
+
     try:
         section = binary.get_section(".text")
     except lief.not_found as e:
-        print(f"No .text section found for {f.as_posix()}")
-        print("Sections found:")
-        pprint([s.name for s in binary.sections])
-        raise e
+        if errors == "raise":
+            raise e
+        elif errors == "warn":
+            print(f"Warning: no .text section found: {f.name}")
+            return None, None
+        elif errors == "ignore":
+            return None, None
 
-    return section.offset, section.offset + section.size
+    if section is None:
+        if errors == "raise":
+            raise lief.not_found(f"Could not parse: {f.name}")
+        elif errors == "warn":
+            print(f"Warning: could not parse: {f.name}")
+            return None, None
+        elif errors == "ignore":
+            return None, None
+
+    if section.size == 0:
+        if errors == "raise":
+            raise ValueError(f".text section has size 0 : {f.name}")
+        elif errors == "warn":
+            print(f".text section has size 0 : {f.name}")
+            return None, None
+        elif errors == "ignore":
+            return None, None
+
+    lower = section.offset
+    upper = lower + section.size
+    return lower, upper
 
 
 def build_corpora_fixed_chunk_size(
-        output_path: Path,
-        attributions_path: Path,
-        corpora_path: Path,
-        chunk_size: int,
+    output_path: Path,
+    attributions_path: Path,
+    corpora_path: Path,
+    chunk_size: int,
 ):
     print(section_header("Building Corpora"))
-
+    # TODO: mind the change in API of get_data
     train_dataset, _, train_loader, _, train_sampler, _ = get_data()
     max_hash_evasion = 10
 
@@ -58,13 +96,13 @@ def build_corpora_fixed_chunk_size(
     corpora_path = corpora_path / hyperparam_path
 
     binary_files = [Path(e[0]) for e in train_dataset.all_files]
-    for f in binary_files: #tqdm(binary_files):
-        if f.stat().st_size == 0:   # Ignore empty files
+    for f in binary_files:  # tqdm(binary_files):
+        if f.stat().st_size == 0:  # Ignore empty files
             continue
         # Saved attributions tensor
         attributions = torch.load(
             (attributions_path / f.name).with_suffix(".pt"),
-            map_location=torch.device("cpu")
+            map_location=torch.device("cpu"),
         )
         # Byte-view of the binary
         binary = read_binary(f)
@@ -144,7 +182,7 @@ def move_files_based_upon_parsing_needs(corpora_path: Path):
         path = corpora_path / division
         unknown_path = path / "archUnknown" / "modeUnknown"
         unknown_path.mkdir(exist_ok=True, parents=True)
-        for collection in range(10):    # Corresponds to the max_hash_evasion
+        for collection in range(10):  # Corresponds to the max_hash_evasion
             collection_path = path / str(collection)
             if not collection_path.exists():
                 break
@@ -154,5 +192,7 @@ def move_files_based_upon_parsing_needs(corpora_path: Path):
 
 
 if __name__ == "__main__":
-    corpora_path = Path("/home/lk3591/Documents/datasets/MachineCodeTranslation/KernelShap/softmaxFalse/256/50/1/attributions/")
+    corpora_path = Path(
+        "/home/lk3591/Documents/datasets/MachineCodeTranslation/KernelShap/softmaxFalse/256/50/1/attributions/"
+    )
     move_files_based_upon_parsing_needs(corpora_path)

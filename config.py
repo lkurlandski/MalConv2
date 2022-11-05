@@ -11,7 +11,9 @@ import torch
 SEED = 0
 random.seed(SEED)
 np.random.seed(SEED)
-device = torch.device('cuda:0' if torch.cuda.is_available() else "cpu")
+torch.manual_seed(SEED)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 torch.backends.cudnn.enabled = False
 
 print(f"CONFIG\n{'-' * 88}")
