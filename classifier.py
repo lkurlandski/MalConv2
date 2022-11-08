@@ -35,8 +35,11 @@ MALCONV_PATH = MODELS_PATH / "malconv.checkpoint"
 BATCH_SIZE = 8
 MAX_LEN = 1000000  # 16000000 was used by the original authors
 PAD_VALUE = 0
+NUM_EMBEDDINGS = 257
+CONFIDENCE_THRESHOLD = 0.5
 
 MalConvLike = tp.Union[MalConv, MalConvGCT]
+ModelName = tp.Literal["two", "gct"]
 
 
 def forward_function_malconv(model, softmax: bool):
@@ -47,15 +50,21 @@ def forward_function_malconv(model, softmax: bool):
 
 
 def confidence_scores(model: tp.Union[MalConv, MalConvGCT], X: Tensor) -> Tensor:
+    if X.dim() == 1:
+        X = X.unsqueeze(0)
     return F.softmax(model(X)[0], dim=-1).data[:, 1].detach().cpu().numpy().ravel()
 
 
-def get_model(checkpoint_path: Path, verbose: bool = False):
-    torch.rand(4).to(device)
-    if checkpoint_path.name == MALCONV_GCT_PATH.name:
+def get_model(model_name: ModelName, verbose: bool = False):
+    torch.rand(4).to(device)  # This may help improve loading speed?
+    if model_name == "gct":
+        checkpoint_path = MALCONV_GCT_PATH
         model = MalConvGCT(channels=256, window_size=256, stride=64)
-    elif checkpoint_path.name == MALCONV_PATH.name:
+    elif model_name == "two":
+        checkpoint_path = MALCONV_PATH
         model = MalConv()
+    else:
+        raise ValueError(f"Invalid model_name: {model_name}")
     state = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(state["model_state_dict"], strict=False)
     model.to(device)
@@ -169,9 +178,9 @@ def get_data(
 
 
 def evaluate_pretrained_malconv(
-    checkpoint_path: Path, n_test: int = None, verbose: bool = False
+    model_name: ModelName, n_test: int = None, verbose: bool = False
 ) -> None:
-    model = get_model(checkpoint_path, verbose=verbose)
+    model = get_model(model_name, verbose=verbose)
     _, _, _, test_loader, _, _ = get_data(n_test=n_test, verbose=verbose)
 
     # Probability that the example is malicious and ground truths

@@ -25,7 +25,7 @@ from classifier import (
     get_model,
     get_data,
     forward_function_malconv,
-    MALCONV_PATH,
+    ModelName,
     PAD_VALUE,
 )
 from config import device
@@ -54,6 +54,9 @@ def get_feature_mask(
     mask_size: int = 256,
     copy_for_each_input: bool = True,
 ) -> torch.Tensor:
+    if inputs.shape[1] < mask_size:
+        return torch.full((inputs.shape[1],), 0).unsqueeze(0)
+
     q, r = divmod(inputs.shape[1], mask_size)
     feature_mask = torch.cat([torch.full((mask_size,), i) for i in range(q)])
     feature_mask = torch.cat([feature_mask, torch.full((r,), q)])
@@ -102,14 +105,16 @@ def feature_ablation(
     output_path: Path = None,
     verbose: bool = False,
 ) -> None:
-    print(section_header("", start_with_newline=False))
+    if verbose:
+        print(section_header("", start_with_newline=False))
     output_path.mkdir(exist_ok=True)
     alg = FeatureAblation(forward_func)
     for mask_size in [256]:
         feature_mask = get_feature_mask(inputs, mask_size)
         for perturbations_per_eval in [1]:
-            print(f"{mask_size=}")
-            print(f"{perturbations_per_eval=}")
+            if verbose:
+                print(f"{mask_size=}")
+                print(f"{perturbations_per_eval=}")
             output_path_ = output_path / str(mask_size) / str(perturbations_per_eval)
             output_path_.mkdir(exist_ok=True, parents=True)
             try:
@@ -136,14 +141,16 @@ def feature_permutation(
     output_path: Path = None,
     verbose: bool = False,
 ) -> None:
-    print(section_header("", start_with_newline=False))
+    if verbose:
+        print(section_header("", start_with_newline=False))
     output_path.mkdir(exist_ok=True)
     alg = FeaturePermutation(forward_func)
     for mask_size in [256]:
         feature_mask = get_feature_mask(inputs, mask_size, copy_for_each_input=False)
         for perturbations_per_eval in [1]:
-            print(f"{mask_size=}")
-            print(f"{perturbations_per_eval=}")
+            if verbose:
+                print(f"{mask_size=}")
+                print(f"{perturbations_per_eval=}")
             output_path_ = output_path / str(mask_size) / str(perturbations_per_eval)
             output_path_.mkdir(exist_ok=True, parents=True)
             try:
@@ -169,13 +176,15 @@ def integrated_gradients(
     output_path: Path = None,
     verbose: bool = False,
 ) -> None:
-    print(section_header("", start_with_newline=False))
+    if verbose:
+        print(section_header("", start_with_newline=False))
     output_path.mkdir(exist_ok=True)
     alg = IntegratedGradients(forward_func)
     for method in ["gausslegendre"]:
         for n_steps in [50]:
-            print(f"{method=}")
-            print(f"{n_steps=}")
+            if verbose:
+                print(f"{method=}")
+                print(f"{n_steps=}")
             output_path_ = output_path / method / str(n_steps)
             output_path_.mkdir(exist_ok=True, parents=True)
             try:
@@ -202,16 +211,18 @@ def kernel_shap(
     output_path: Path = None,
     verbose: bool = False,
 ) -> None:
-    print(section_header("", start_with_newline=False))
+    if verbose:
+        print(section_header("", start_with_newline=False))
     output_path.mkdir(exist_ok=True)
     alg = KernelShap(forward_func)
-    for mask_size in [4096, 1024, 256]:
+    for mask_size in [256]:
         feature_mask = get_feature_mask(inputs, mask_size)[0]
         for n_samples in [50]:
             for perturbations_per_eval in [1]:
-                print(f"{mask_size=}")
-                print(f"{n_samples=}")
-                print(f"{perturbations_per_eval=}")
+                if verbose:
+                    print(f"{mask_size=}")
+                    print(f"{n_samples=}")
+                    print(f"{perturbations_per_eval=}")
                 output_path_ = (
                     output_path
                     / str(mask_size)
@@ -247,8 +258,10 @@ def layer_activation(
     inputs: torch.Tensor,
     filenames: tp.List[Path] = None,
     output_path: Path = None,
+    verbose: bool = False,
 ) -> None:
-    print(section_header("", start_with_newline=False))
+    if verbose:
+        print(section_header("", start_with_newline=False))
     output_path.mkdir(exist_ok=True)
     alg = LayerActivation(forward_func, layer)
     try:
@@ -269,13 +282,15 @@ def layer_integrated_gradients(
     output_path: Path = None,
     verbose: bool = False,
 ) -> None:
-    print(section_header("", start_with_newline=False))
+    if verbose:
+        print(section_header("", start_with_newline=False))
     output_path.mkdir(exist_ok=True)
     alg = LayerIntegratedGradients(forward_func, layer)
     for method in ["gausslegendre"]:
         for n_steps in [50]:
-            print(f"{method=}")
-            print(f"{n_steps=}")
+            if verbose:
+                print(f"{method=}")
+                print(f"{n_steps=}")
             output_path_ = output_path / method / str(n_steps)
             output_path_.mkdir(exist_ok=True, parents=True)
             try:
@@ -302,15 +317,17 @@ def occlusion(
     output_path: Path = None,
     verbose: bool = False,
 ) -> None:
-    print(section_header("", start_with_newline=False))
+    if verbose:
+        print(section_header("", start_with_newline=False))
     output_path.mkdir(exist_ok=True)
     alg = Occlusion(forward_func)
     for sliding_window_shapes in [(10000,)]:
         for strides in [1]:
             for perturbations_per_eval in [1]:
-                print(f"{sliding_window_shapes=}")
-                print(f"{strides=}")
-                print(f"{perturbations_per_eval=}")
+                if verbose:
+                    print(f"{sliding_window_shapes=}")
+                    print(f"{strides=}")
+                    print(f"{perturbations_per_eval=}")
                 output_path_ = (
                     output_path
                     / str(sliding_window_shapes)
@@ -343,16 +360,18 @@ def shapley_value_sampling(
     output_path: Path = None,
     verbose: bool = False,
 ) -> None:
-    print(section_header("", start_with_newline=False))
+    if verbose:
+        print(section_header("", start_with_newline=False))
     output_path.mkdir(exist_ok=True)
     alg = ShapleyValueSampling(forward_func)
     for mask_size in [256]:
         feature_mask = get_feature_mask(inputs, mask_size)
         for n_samples in [25]:
             for perturbations_per_eval in [1]:
-                print(f"{mask_size=}")
-                print(f"{n_samples=}")
-                print(f"{perturbations_per_eval=}")
+                if verbose:
+                    print(f"{mask_size=}")
+                    print(f"{n_samples=}")
+                    print(f"{perturbations_per_eval=}")
                 output_path_ = (
                     output_path
                     / str(mask_size)
@@ -397,41 +416,51 @@ def explain_batch(
 ) -> None:
 
     if run_feature_ablation:
-        print(section_header("FeatureAblation"))
+        if verbose:
+            print(section_header("FeatureAblation"))
         for name, forward_func in forward_functions.items():
-            print(f"forward_func_name={name}")
+            if verbose:
+                print(f"forward_func_name={name}")
             output_path_ = output_path / "FeatureAblation" / name
             output_path_.mkdir(exist_ok=True, parents=True)
             feature_ablation(forward_func, X, files, output_path_, verbose)
 
     if run_feature_permutation:
-        print(section_header("FeaturePermutation"))
+        if verbose:
+            print(section_header("FeaturePermutation"))
         for name, forward_func in forward_functions.items():
-            print(f"forward_func_name={name}")
+            if verbose:
+                print(f"forward_func_name={name}")
             output_path_ = output_path / "FeaturePermutation" / name
             output_path_.mkdir(exist_ok=True, parents=True)
             feature_permutation(forward_func, X, files, output_path_, verbose)
 
     if run_integrated_gradients:
-        print(section_header("IntegratedGradients"))
+        if verbose:
+            print(section_header("IntegratedGradients"))
         for name, forward_func in forward_functions.items():
-            print(f"forward_func_name={name}")
+            if verbose:
+                print(f"forward_func_name={name}")
             output_path_ = output_path / "IntegratedGradients" / name
             output_path_.mkdir(exist_ok=True, parents=True)
             integrated_gradients(forward_func, X, files, output_path_, verbose)
 
     if run_kernel_shap:
-        print(section_header("KernelShap"))
+        if verbose:
+            print(section_header("KernelShap"))
         for name, forward_func in forward_functions.items():
-            print(f"forward_func_name={name}")
+            if verbose:
+                print(f"forward_func_name={name}")
             output_path_ = output_path / "KernelShap" / name
             output_path_.mkdir(exist_ok=True, parents=True)
             kernel_shap(forward_func, X, files, output_path_, verbose)
 
     if run_layer_activation:
-        print(section_header("LayerActivation"))
+        if verbose:
+            print(section_header("LayerActivation"))
         for name, forward_func in forward_functions.items():
-            print(f"forward_func_name={name}")
+            if verbose:
+                print(f"forward_func_name={name}")
             for layer in layers:
                 output_path_ = output_path / "LayerActivation" / name / layer
                 output_path_.mkdir(exist_ok=True, parents=True)
@@ -440,9 +469,11 @@ def explain_batch(
                 )
 
     if run_layer_integrated_gradients:
-        print(section_header("LayerIntegratedGradients"))
+        if verbose:
+            print(section_header("LayerIntegratedGradients"))
         for name, forward_func in forward_functions.items():
-            print(f"forward_func_name={name}")
+            if verbose:
+                print(f"forward_func_name={name}")
             for layer in layers:
                 output_path_ = output_path / "LayerIntegratedGradients" / name / layer
                 output_path_.mkdir(exist_ok=True, parents=True)
@@ -451,24 +482,28 @@ def explain_batch(
                 )
 
     if run_occlusion:
-        print(section_header("Occlusion"))
+        if verbose:
+            print(section_header("Occlusion"))
         for name, forward_func in forward_functions.items():
-            print(f"forward_func_name={name}")
+            if verbose:
+                print(f"forward_func_name={name}")
             output_path_ = output_path / "Occlusion" / name
             output_path_.mkdir(exist_ok=True, parents=True)
             occlusion(forward_func, X, files, output_path_, verbose)
 
     if run_shapley_value_sampling:
-        print(section_header("ShapleyValueSampling"))
+        if verbose:
+            print(section_header("ShapleyValueSampling"))
         for name, forward_func in forward_functions.items():
-            print(f"forward_func_name={name}")
+            if verbose:
+                print(f"forward_func_name={name}")
             output_path_ = output_path / "ShapleyValueSampling" / name
             output_path_.mkdir(exist_ok=True, parents=True)
             shapley_value_sampling(forward_func, X, files, output_path_, verbose)
 
 
 def explain_pretrained_malconv(
-    checkpoint_path: Path,
+    model_name: ModelName,
     run_feature_ablation: bool = False,
     run_feature_permutation: bool = False,
     run_integrated_gradients: bool = False,
@@ -481,15 +516,16 @@ def explain_pretrained_malconv(
     verbose: bool = False,
 ) -> None:
     print(section_header("Model"))
-    model = get_model(checkpoint_path, verbose=verbose)
+    model = get_model(model_name, verbose=verbose)
 
     print(section_header("Data"))
     # TODO: mind the change in API of get_data
     train_dataset, _, train_loader, _, train_sampler, _ = get_data(
-        max_len=16000000, batch_size=1
+        max_len=1000000, batch_size=1
     )
 
     print(section_header("Captum"))
+    # Generally speaking we do not want to apply the softmax layer to the forward function, I think
     forward_functions = {
         f"{softmax=}": forward_function_malconv(model, softmax) for softmax in (False,)
     }
@@ -497,32 +533,47 @@ def explain_pretrained_malconv(
     print(pformat(f"forward_functions={list(forward_functions.keys())}"))
     print(pformat(f"{layers=}"))
 
-    files = [Path(e[0]) for e in train_dataset.all_files]
-    for (X, _), f in tqdm(zip(train_loader, batch(files, train_loader.batch_size))):
+    batched_files = batch(
+        [Path(e[0]) for e in train_dataset.all_files], train_loader.batch_size
+    )
+    total = len(train_dataset) / train_loader.batch_size
+    for (X, _), f in tqdm(zip(train_loader, batched_files), total=total):
         X = X.to(device)
-        explain_batch(
-            model,
-            X,
-            f,
-            forward_functions,
-            layers,
-            run_feature_ablation,
-            run_feature_permutation,
-            run_integrated_gradients,
-            run_kernel_shap,
-            run_layer_activation,
-            run_layer_integrated_gradients,
-            run_occlusion,
-            run_shapley_value_sampling,
-            output_path,
-            verbose,
-        )
+        # TODO: this can be caused by empty files...which should be removed?
+        if X.shape[1] == 0:
+            continue
+        try:
+            explain_batch(
+                model,
+                X,
+                f,
+                forward_functions,
+                layers,
+                run_feature_ablation,
+                run_feature_permutation,
+                run_integrated_gradients,
+                run_kernel_shap,
+                run_layer_activation,
+                run_layer_integrated_gradients,
+                run_occlusion,
+                run_shapley_value_sampling,
+                output_path,
+                verbose,
+            )
+        except Exception as e:
+            print(error_line())
+            print(f"f={pformat(f)}")
+            print(f"{X.shape=}")
+            print(f"{X=}")
+            print(f"{e=}")
+            traceback.print_exc()
+            print(error_line())
 
 
 if __name__ == "__main__":
-    output_path = Path("outputs/8")
+    output_path = Path("outputs/gct")
     explain_pretrained_malconv(
-        MALCONV_PATH,
+        "gct",
         run_feature_ablation=False,
         run_feature_permutation=False,
         run_integrated_gradients=False,
@@ -532,5 +583,5 @@ if __name__ == "__main__":
         run_occlusion=False,
         run_shapley_value_sampling=False,
         output_path=output_path,
-        verbose=True,
+        verbose=False,
     )

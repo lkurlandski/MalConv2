@@ -155,6 +155,8 @@ def _text_section_bounds(
 def text_section_bounds(
     files: tp.Union[tp.Iterable[Pathlike], Pathlike],
     toolkit: ExeToolkit,
+    min_size: tp.Optional[int] = None,
+    max_size: tp.Optional[int] = None,
     errors: ErrorMode = "raise",
 ) -> tp.Generator[tp.Tuple[Path, int, int], None, None]:
     """
@@ -187,6 +189,11 @@ def text_section_bounds(
             else:
                 raise ValueError(f"Invalid value for errors: {errors}")
         else:
+            if min_size is not None and upper - lower < min_size:
+                continue
+            if max_size is not None and upper - lower > max_size:
+                continue
+
             count += 1
             yield f, lower, upper
 
@@ -197,11 +204,13 @@ def text_section_data(
     files: tp.Union[tp.Iterable[Pathlike], Pathlike],
     toolkit: ExeToolkit,
     datatype: tp.Literal["bytes", "numpy", "torch"],
+    min_size: tp.Optional[int] = None,
+    max_size: tp.Optional[int] = None,
     errors: ErrorMode = "raise",
 ) -> tp.Generator[
     tp.Tuple[Path, int, int, tp.Union[str, np.ndarray, Tensor]], None, None
 ]:
-    for f, l, u in text_section_bounds(files, toolkit, errors):
+    for f, l, u in text_section_bounds(files, toolkit, min_size, max_size, errors):
         if datatype == "bytes":
             raise NotImplementedError()
         elif datatype == "numpy":

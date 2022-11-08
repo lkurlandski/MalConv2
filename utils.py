@@ -26,3 +26,20 @@ def batch(iterable: tp.Iterable, n: int = 1) -> tp.Iterable[tp.List]:
 
 def ceil_divide(a: float, b: float) -> int:
     return int(-(a // -b))
+
+
+def get_outfile(
+    outfile: Pathlike = None,
+    outfile_parent: Pathlike = ".",
+    outfile_stem: str = "outfile",
+    outfile_prefix: str = "",
+    outfile_postfix: str = "",
+    outfile_suffix: str = ".out",
+) -> Path:
+    if outfile is not None:
+        return Path(outfile)
+    outfile_prefix = outfile_prefix + "_" if outfile_prefix else ""
+    outfile_postfix = "_" + outfile_postfix if outfile_postfix else ""
+    return (
+        Path(outfile_parent) / f"{outfile_prefix}{outfile_stem}{outfile_postfix}"
+    ).with_suffix(outfile_suffix)
