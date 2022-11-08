@@ -148,7 +148,14 @@ def get_data(
     n_train: int = None,
     n_test: int = None,
     verbose: bool = False,
-) -> tp.Tuple[BinaryDataset, BinaryDataset, DataLoader, DataLoader, tp.Optional[RandomChunkSampler], tp.Optional[RandomChunkSampler]]:
+) -> tp.Tuple[
+    BinaryDataset,
+    BinaryDataset,
+    DataLoader,
+    DataLoader,
+    tp.Optional[RandomChunkSampler],
+    tp.Optional[RandomChunkSampler],
+]:
     train_dataset, test_dataset = _get_datasets(
         train_good_dir,
         train_bad_dir,
@@ -181,7 +188,9 @@ def get_data(
 
 
 def _evaluate_pretrain_malconv(
-        model: MalConvLike, loader: DataLoader, files: tp.Optional[tp.List[Path]] = None,
+    model: MalConvLike,
+    loader: DataLoader,
+    files: tp.Optional[tp.List[Path]] = None,
 ) -> tp.Tuple[tp.List[float], tp.List[float], int, int]:
     # Yield a list of files corresponding to the inputs, or yield list of None
     files = [None] * len(loader) if files is None else files
@@ -190,7 +199,10 @@ def _evaluate_pretrain_malconv(
     # Trackers to record information about the model's performance
     confs, truths = [], []
     n_correct, n_total = 0, 0
-    for (inputs, labels), f, in tqdm(zip(loader, batched_files), total=len(loader)):
+    for (
+        (inputs, labels),
+        f,
+    ) in tqdm(zip(loader, batched_files), total=len(loader)):
         inputs, labels = inputs.to(device), labels.to(device)
         # Get model outputs
         outputs, penultimate_activ, conv_active = model(inputs)
@@ -213,15 +225,20 @@ def _evaluate_pretrain_malconv(
 
 
 def evaluate_pretrained_malconv(
-        model_name: ModelName,
-        n_test: int = None,  # FIXME: no idea if this will work
-        n_train: int = None,  # FIXME: no idea if this will work
-        verbose: bool = False,
+    model_name: ModelName,
+    n_test: int = None,  # FIXME: no idea if this will work
+    n_train: int = None,  # FIXME: no idea if this will work
+    verbose: bool = False,
 ) -> tp.Tuple[
-        tp.List[float], tp.List[float],
-        tp.List[int], tp.List[int],
-        tp.List[Path], tp.List[Path],
-        tp.Dict[str, tp.Any], tp.Dict[str, tp.Any], tp.Dict[str, tp.Any],
+    tp.List[float],
+    tp.List[float],
+    tp.List[int],
+    tp.List[int],
+    tp.List[Path],
+    tp.List[Path],
+    tp.Dict[str, tp.Any],
+    tp.Dict[str, tp.Any],
+    tp.Dict[str, tp.Any],
 ]:
     target_names = ["benign", "malicious"]
     model = get_model(model_name, verbose=verbose)
@@ -238,8 +255,9 @@ def evaluate_pretrained_malconv(
             ts_truths, np.round(ts_confs), target_names=target_names, output_dict=True
         )
         ts_report["auroc"] = (
-            roc_auc_score(ts_truths, ts_confs) if len(ts_truths) - sum(ts_truths) != 0 else
-            np.NaN
+            roc_auc_score(ts_truths, ts_confs)
+            if len(ts_truths) - sum(ts_truths) != 0
+            else np.NaN
         )
     else:
         ts_confs, ts_truths, ts_files, ts_report = None, None, None, None
@@ -253,21 +271,26 @@ def evaluate_pretrained_malconv(
             tr_truths, np.round(tr_confs), target_names=target_names, output_dict=True
         )
         tr_report["auroc"] = (
-            roc_auc_score(tr_truths, tr_confs) if len(tr_truths) - sum(tr_truths) != 0 else
-            np.NaN
+            roc_auc_score(tr_truths, tr_confs)
+            if len(tr_truths) - sum(tr_truths) != 0
+            else np.NaN
         )
     else:
         tr_confs, tr_truths, tr_files, tr_report = None, None, None, None
 
     if n_test != 0 and n_train != 0:
         cum_report = {}
-        for (tr_k, tr_v), (ts_k, ts_v) in zip(sorted_dict(tr_report), sorted_dict(ts_report)):
+        for (tr_k, tr_v), (ts_k, ts_v) in zip(
+            sorted_dict(tr_report), sorted_dict(ts_report)
+        ):
             if isinstance(tr_v, dict) and isinstance(ts_v, dict):
                 tr_s = tr_v["support"]
                 ts_s = ts_v["support"]
                 cum_report[tr_k] = {}
                 for m in ["precision", "recall", "f1-score"]:
-                    cum_report[tr_k][m] = (tr_v[m] * tr_s + ts_v[m] * ts_s) / (tr_s + ts_s)
+                    cum_report[tr_k][m] = (tr_v[m] * tr_s + ts_v[m] * ts_s) / (
+                        tr_s + ts_s
+                    )
             elif isinstance(tr_v, float) and isinstance(ts_v, float):
                 tr_s = tr_report["macro avg"]["support"]
                 ts_s = ts_report["macro avg"]["support"]
@@ -275,15 +298,34 @@ def evaluate_pretrained_malconv(
     else:
         cum_report = None
 
-    return tr_confs, ts_confs, tr_truths, ts_truths, tr_files, ts_files, tr_report, ts_report, cum_report
+    return (
+        tr_confs,
+        ts_confs,
+        tr_truths,
+        ts_truths,
+        tr_files,
+        ts_files,
+        tr_report,
+        ts_report,
+        cum_report,
+    )
 
 
 def evaluate_pretrained_malconv_save_results() -> None:
     model_name = "gct"
     output = Path("output_model") / model_name
     output.mkdir(parents=True, exist_ok=True)
-    tr_confs, ts_confs, tr_truths, ts_truths, tr_files, ts_files, tr_report, ts_report, cum_report = evaluate_pretrained_malconv(
-        model_name)
+    (
+        tr_confs,
+        ts_confs,
+        tr_truths,
+        ts_truths,
+        tr_files,
+        ts_files,
+        tr_report,
+        ts_report,
+        cum_report,
+    ) = evaluate_pretrained_malconv(model_name)
 
     pd.DataFrame(
         {
