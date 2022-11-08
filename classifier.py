@@ -327,32 +327,41 @@ def evaluate_pretrained_malconv_save_results() -> None:
         cum_report,
     ) = evaluate_pretrained_malconv(model_name)
 
-    pd.DataFrame(
-        {
-            "ts_files": [p.as_posix() for p in ts_files],
-            "ts_confs": ts_confs,
-            "ts_truths": ts_truths,
-        }
-    ).to_csv(output / "ts_results.csv", index=False)
-    pd.DataFrame(
-        {
-            "tr_files": [p.as_posix() for p in tr_files],
-            "tr_confs": tr_confs,
-            "tr_truths": tr_truths,
-        }
-    ).to_csv(output / "tr_results.csv", index=False)
-
-    if tr_report is not None:
+    if all(tr_confs, tr_truths, tr_files, tr_report):
         with open(output / "tr_report.json", "w") as f:
             json.dump(tr_report, f, indent=4, sort_keys=True)
+        pd.DataFrame(
+            {
+                "tr_files": [p.as_posix() for p in tr_files],
+                "tr_confs": tr_confs,
+                "tr_truths": tr_truths,
+            }
+        ).to_csv(output / "tr_results.csv", index=False)
 
-    if ts_report is not None:
+    if all(ts_confs, ts_truths, ts_files, ts_report):
         with open(output / "ts_report.json", "w") as f:
             json.dump(ts_report, f, indent=4, sort_keys=True)
+        pd.DataFrame(
+            {
+                "ts_files": [p.as_posix() for p in ts_files],
+                "ts_confs": ts_confs,
+                "ts_truths": ts_truths,
+            }
+        ).to_csv(output / "ts_results.csv", index=False)
 
     if cum_report is not None:
         with open(output / "cum_report.json", "w") as f:
             json.dump(cum_report, f, indent=4, sort_keys=True)
+        pd.DataFrame(
+            {
+                "tr_files": [p.as_posix() for p in tr_files],
+                "tr_confs": tr_confs,
+                "tr_truths": tr_truths,
+                "ts_files": [p.as_posix() for p in ts_files],
+                "ts_confs": ts_confs,
+                "ts_truths": ts_truths,
+            }
+        ).to_csv(output / "cum_results.csv", index=False)
 
 
 if __name__ == "__main__":

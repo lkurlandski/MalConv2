@@ -97,3 +97,13 @@ Mark Mclean <mrmclea@lps.umd.edu>
 Edward Raff <edraff@lps.umd.edu>
 Richard Zak <rzak@lps.umd.edu>
 
+# Malware Explainability and Adversarial Attacks
+
+## TODO
+
+- Figure out why MalConv GCT throws many errors, eg
+  - Error on 000f87fe6944580a93145218ff1208135eb9a5e2b7fdf7155bb8f8f7325190a8: integer division or modulo by zero
+  - Error on 001ea416b68655b29eee960cdcc222e7d334a9879684f11d7c26761c861ab63c: integer division or modulo by zero
+  - Error on 002da0eff6ddb97f1e7496c55127de1c7c4785f2a13cb05619755c63b1532a62: integer division or modulo by zero
+- Use Neptune to track experiments instead of nested output structure
+
