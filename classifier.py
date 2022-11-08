@@ -2,11 +2,13 @@
 
 """
 
+import json
 import multiprocessing as mp
 from pathlib import Path
 import typing as tp
 
 import numpy as np
+import pandas as pd
 from sklearn.metrics import roc_auc_score, classification_report
 from tqdm import tqdm
 import torch
@@ -20,6 +22,7 @@ from MalConvGCT_nocat import MalConvGCT
 
 from config import device
 from typing_ import Pathlike
+from utils import batch, sorted_dict
 
 
 DATASET_PATH = Path("/home/lk3591/Documents/datasets")
@@ -42,7 +45,7 @@ MalConvLike = tp.Union[MalConv, MalConvGCT]
 ModelName = tp.Literal["two", "gct"]
 
 
-def forward_function_malconv(model, softmax: bool):
+def forward_function_malconv(model, softmax: bool) -> tp.Callable[[Tensor], Tensor]:
     if softmax:
         return lambda x: F.softmax(model(x)[0], dim=-1)
     else:
@@ -55,7 +58,7 @@ def confidence_scores(model: tp.Union[MalConv, MalConvGCT], X: Tensor) -> Tensor
     return F.softmax(model(X)[0], dim=-1).data[:, 1].detach().cpu().numpy().ravel()
 
 
-def get_model(model_name: ModelName, verbose: bool = False):
+def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:
     torch.rand(4).to(device)  # This may help improve loading speed?
     if model_name == "gct":
         checkpoint_path = MALCONV_GCT_PATH
@@ -145,7 +148,7 @@ def get_data(
     n_train: int = None,
     n_test: int = None,
     verbose: bool = False,
-) -> tp.Tuple[BinaryDataset, BinaryDataset, DataLoader, DataLoader]:
+) -> tp.Tuple[BinaryDataset, BinaryDataset, DataLoader, DataLoader, tp.Optional[RandomChunkSampler], tp.Optional[RandomChunkSampler]]:
     train_dataset, test_dataset = _get_datasets(
         train_good_dir,
         train_bad_dir,
@@ -177,35 +180,138 @@ def get_data(
     )
 
 
+def _evaluate_pretrain_malconv(
+        model: MalConvLike, loader: DataLoader, files: tp.Optional[tp.List[Path]] = None,
+) -> tp.Tuple[tp.List[float], tp.List[float], int, int]:
+    # Yield a list of files corresponding to the inputs, or yield list of None
+    files = [None] * len(loader) if files is None else files
+    batched_files = batch(files, loader.batch_size)
+
+    # Trackers to record information about the model's performance
+    confs, truths = [], []
+    n_correct, n_total = 0, 0
+    for (inputs, labels), f, in tqdm(zip(loader, batched_files), total=len(loader)):
+        inputs, labels = inputs.to(device), labels.to(device)
+        # Get model outputs
+        outputs, penultimate_activ, conv_active = model(inputs)
+        # The values of the maximally stimulated neuron and the indices of that neuron (0 or 1)
+        values, pred = torch.max(outputs.data, 1)
+        # The probabilities that each example in the batch is malicious
+        conf = F.softmax(outputs, dim=-1).data[:, 1].detach().cpu().numpy().ravel()
+        # Ground truth labels (0 or 1)
+        truth = labels.detach().cpu().numpy().ravel()
+        # Update trackers
+        confs.extend(conf)
+        truths.extend(truth)
+        n_total += labels.size(0)
+        n_correct += (pred == labels).sum().item()
+        # Do something with the file
+        if f is not None:
+            pass
+
+    return confs, truths, n_correct, n_total
+
+
 def evaluate_pretrained_malconv(
-    model_name: ModelName, n_test: int = None, verbose: bool = False
-) -> None:
+        model_name: ModelName,
+        n_test: int = None,  # FIXME: no idea if this will work
+        n_train: int = None,  # FIXME: no idea if this will work
+        verbose: bool = False,
+) -> tp.Tuple[
+        tp.List[float], tp.List[float],
+        tp.List[int], tp.List[int],
+        tp.List[Path], tp.List[Path],
+        tp.Dict[str, tp.Any], tp.Dict[str, tp.Any], tp.Dict[str, tp.Any],
+]:
+    target_names = ["benign", "malicious"]
     model = get_model(model_name, verbose=verbose)
-    _, _, _, test_loader, _, _ = get_data(n_test=n_test, verbose=verbose)
+    tr_dataset, ts_dataset, tr_loader, ts_loader, _, _ = get_data(
+        n_test=n_test, n_train=n_train, verbose=verbose
+    )
 
-    # Probability that the example is malicious and ground truths
-    preds, truths = [], []
-    eval_train_correct, eval_train_total = 0, 0
-    with torch.no_grad():
-        for inputs, labels in tqdm(test_loader):
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs, penultimate_activ, conv_active = model(inputs)
-            # The values of the maximally stimulated neuron and the indices of that neuron (0 or 1)
-            values, predicted = torch.max(outputs.data, 1)
-            # The probabilities that each example in the batch is malicious
-            pred = F.softmax(outputs, dim=-1).data[:, 1].detach().cpu().numpy().ravel()
-            # Ground truth labels (0 or 1)
-            truth = labels.detach().cpu().numpy().ravel()
-            # Update trackers
-            preds.extend(pred)
-            truths.extend(truth)
-            eval_train_total += labels.size(0)
-            eval_train_correct += (predicted == labels).sum().item()
+    if n_test != 0:
+        ts_files = [Path(e[0]) for e in ts_dataset.all_files]
+        ts_confs, ts_truths, ts_n_correct, ts_n_total = _evaluate_pretrain_malconv(
+            model, ts_loader, ts_files
+        )
+        ts_report = classification_report(
+            ts_truths, np.round(ts_confs), target_names=target_names, output_dict=True
+        )
+        ts_report["auroc"] = (
+            roc_auc_score(ts_truths, ts_confs) if len(ts_truths) - sum(ts_truths) != 0 else
+            np.NaN
+        )
+    else:
+        ts_confs, ts_truths, ts_files, ts_report = None, None, None, None
 
-    auc = roc_auc_score(truths, preds) if len(truths) - sum(truths) != 0 else np.NaN
-    n_pos = sum(1 for i in truths if i == 1)
-    n_neg = sum(1 for i in truths if i == 0)
-    print(f"Observed Distribution: {dict(neg=n_neg, pos=n_pos)}")
-    print(f"AUROC: {auc}")
-    report = classification_report(truths, [int(round(i)) for i in preds])
-    print(report)
+    if n_train != 0:
+        tr_files = [Path(e[0]) for e in tr_dataset.all_files]
+        tr_confs, tr_truths, tr_n_correct, tr_n_total = _evaluate_pretrain_malconv(
+            model, tr_loader, tr_files
+        )
+        tr_report = classification_report(
+            tr_truths, np.round(tr_confs), target_names=target_names, output_dict=True
+        )
+        tr_report["auroc"] = (
+            roc_auc_score(tr_truths, tr_confs) if len(tr_truths) - sum(tr_truths) != 0 else
+            np.NaN
+        )
+    else:
+        tr_confs, tr_truths, tr_files, tr_report = None, None, None, None
+
+    if n_test != 0 and n_train != 0:
+        cum_report = {}
+        for (tr_k, tr_v), (ts_k, ts_v) in zip(sorted_dict(tr_report), sorted_dict(ts_report)):
+            if isinstance(tr_v, dict) and isinstance(ts_v, dict):
+                tr_s = tr_v["support"]
+                ts_s = ts_v["support"]
+                cum_report[tr_k] = {}
+                for m in ["precision", "recall", "f1-score"]:
+                    cum_report[tr_k][m] = (tr_v[m] * tr_s + ts_v[m] * ts_s) / (tr_s + ts_s)
+            elif isinstance(tr_v, float) and isinstance(ts_v, float):
+                tr_s = tr_report["macro avg"]["support"]
+                ts_s = ts_report["macro avg"]["support"]
+                cum_report[tr_k] = (tr_v * tr_s + ts_v * ts_s) / (tr_s + ts_s)
+    else:
+        cum_report = None
+
+    return tr_confs, ts_confs, tr_truths, ts_truths, tr_files, ts_files, tr_report, ts_report, cum_report
+
+
+def evaluate_pretrained_malconv_save_results() -> None:
+    model_name = "gct"
+    output = Path("output_model") / model_name
+    output.mkdir(parents=True, exist_ok=True)
+    tr_confs, ts_confs, tr_truths, ts_truths, tr_files, ts_files, tr_report, ts_report, cum_report = evaluate_pretrained_malconv(
+        model_name)
+
+    pd.DataFrame(
+        {
+            "ts_files": [p.as_posix() for p in ts_files],
+            "ts_confs": ts_confs,
+            "ts_truths": ts_truths,
+        }
+    ).to_csv(output / "ts_results.csv", index=False)
+    pd.DataFrame(
+        {
+            "tr_files": [p.as_posix() for p in tr_files],
+            "tr_confs": tr_confs,
+            "tr_truths": tr_truths,
+        }
+    ).to_csv(output / "tr_results.csv", index=False)
+
+    if tr_report is not None:
+        with open(output / "tr_report.json", "w") as f:
+            json.dump(tr_report, f, indent=4, sort_keys=True)
+
+    if ts_report is not None:
+        with open(output / "ts_report.json", "w") as f:
+            json.dump(ts_report, f, indent=4, sort_keys=True)
+
+    if cum_report is not None:
+        with open(output / "cum_report.json", "w") as f:
+            json.dump(cum_report, f, indent=4, sort_keys=True)
+
+
+if __name__ == "__main__":
+    evaluate_pretrained_malconv_save_results()

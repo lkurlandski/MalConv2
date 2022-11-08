@@ -19,6 +19,7 @@ def error_line(l_r_buffer: int = 40) -> None:
 
 
 def batch(iterable: tp.Iterable, n: int = 1) -> tp.Iterable[tp.List]:
+    # TODO: adjust for lazy inputs
     l = len(iterable)
     for ndx in range(0, l, n):
         yield iterable[ndx : min(ndx + n, l)]
@@ -43,3 +44,7 @@ def get_outfile(
     return (
         Path(outfile_parent) / f"{outfile_prefix}{outfile_stem}{outfile_postfix}"
     ).with_suffix(outfile_suffix)
+
+
+def sorted_dict(d: tp.Dict[str, float]) -> tp.List[tp.Tuple[str, float]]:
+    return sorted(d.items(), key=lambda x: x[0])
