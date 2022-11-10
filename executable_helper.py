@@ -23,9 +23,7 @@ class BadBinaryError(Exception):
 
 class ToolkitError(BadBinaryError):
     def __init__(self, f: Pathlike, toolkit_error: Exception):
-        super(Exception, self).__init__(
-            f"Bad file: {f}\nToolkit error: {toolkit_error}"
-        )
+        super(Exception, self).__init__(f"Bad file: {f}\nToolkit error: {toolkit_error}")
 
 
 class EmptyFileError(BadBinaryError):
@@ -52,9 +50,7 @@ class EmptyTextSectionError(TextSectionError, EmptySectionError):
     ...
 
 
-class TextSectionUpperLargerThanFileError(
-    TextSectionError, SectionUpperLargerThanFileError
-):
+class TextSectionUpperLargerThanFileError(TextSectionError, SectionUpperLargerThanFileError):
     ...
 
 
@@ -207,9 +203,7 @@ def text_section_data(
     min_size: tp.Optional[int] = None,
     max_size: tp.Optional[int] = None,
     errors: ErrorMode = "raise",
-) -> tp.Generator[
-    tp.Tuple[Path, int, int, tp.Union[str, np.ndarray, Tensor]], None, None
-]:
+) -> tp.Generator[tp.Tuple[Path, int, int, tp.Union[str, np.ndarray, Tensor]], None, None]:
     for f, l, u in text_section_bounds(files, toolkit, min_size, max_size, errors):
         if datatype == "bytes":
             raise NotImplementedError()
@@ -266,15 +260,11 @@ def _test(compare=False, analyze=True):
         results = pd.DataFrame(
             {
                 "File": files,
-                "lower-lief": [
-                    lief_files[f][0] if f in lief_files else np.NaN for f in files
-                ],
+                "lower-lief": [lief_files[f][0] if f in lief_files else np.NaN for f in files],
                 "lower-pefile": [
                     pefile_files[f][0] if f in pefile_files else np.NaN for f in files
                 ],
-                "upper-lief": [
-                    lief_files[f][1] if f in lief_files else np.NaN for f in files
-                ],
+                "upper-lief": [lief_files[f][1] if f in lief_files else np.NaN for f in files],
                 "upper-pefile": [
                     pefile_files[f][1] if f in pefile_files else np.NaN for f in files
                 ],

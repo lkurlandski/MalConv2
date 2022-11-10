@@ -106,4 +106,4 @@ Richard Zak <rzak@lps.umd.edu>
   - Error on 001ea416b68655b29eee960cdcc222e7d334a9879684f11d7c26761c861ab63c: integer division or modulo by zero
   - Error on 002da0eff6ddb97f1e7496c55127de1c7c4785f2a13cb05619755c63b1532a62: integer division or modulo by zero
 - Use Neptune to track experiments instead of nested output structure
-
+- Make command-line interfaces to improve scripting

@@ -36,7 +36,7 @@ MODELS_PATH = Path("models")
 MALCONV_GCT_PATH = MODELS_PATH / "malconvGCT_nocat.checkpoint"
 MALCONV_PATH = MODELS_PATH / "malconv.checkpoint"
 BATCH_SIZE = 8
-MAX_LEN = 1000000  # 16000000 was used by the original authors
+MAX_LEN = 16, 000, 000  # 16000000 was used by the original authors
 PAD_VALUE = 0
 NUM_EMBEDDINGS = 257
 CONFIDENCE_THRESHOLD = 0.5
@@ -75,6 +75,25 @@ def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:
     if verbose:
         print(f"{model=}")
     return model
+
+
+def get_dataset_and_loader(
+    good: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
+    bad: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
+    max_len: int = MAX_LEN,
+    batch_size: int = BATCH_SIZE,
+    sampler: RandomChunkSampler = None,
+) -> tp.Tuple[BinaryDataset, DataLoader]:
+    dataset = BinaryDataset(good, bad, max_len=max_len, sort_by_size=False, shuffle=True)
+    loader_threads = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1)
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=loader_threads,
+        collate_fn=pad_collate_func,
+        sampler=sampler,
+    )
+    return dataset, loader
 
 
 def _get_datasets(
@@ -255,9 +274,7 @@ def evaluate_pretrained_malconv(
             ts_truths, np.round(ts_confs), target_names=target_names, output_dict=True
         )
         ts_report["auroc"] = (
-            roc_auc_score(ts_truths, ts_confs)
-            if len(ts_truths) - sum(ts_truths) != 0
-            else np.NaN
+            roc_auc_score(ts_truths, ts_confs) if len(ts_truths) - sum(ts_truths) != 0 else np.NaN
         )
     else:
         ts_confs, ts_truths, ts_files, ts_report = None, None, None, None
@@ -271,26 +288,20 @@ def evaluate_pretrained_malconv(
             tr_truths, np.round(tr_confs), target_names=target_names, output_dict=True
         )
         tr_report["auroc"] = (
-            roc_auc_score(tr_truths, tr_confs)
-            if len(tr_truths) - sum(tr_truths) != 0
-            else np.NaN
+            roc_auc_score(tr_truths, tr_confs) if len(tr_truths) - sum(tr_truths) != 0 else np.NaN
         )
     else:
         tr_confs, tr_truths, tr_files, tr_report = None, None, None, None
 
     if n_test != 0 and n_train != 0:
         cum_report = {}
-        for (tr_k, tr_v), (ts_k, ts_v) in zip(
-            sorted_dict(tr_report), sorted_dict(ts_report)
-        ):
+        for (tr_k, tr_v), (ts_k, ts_v) in zip(sorted_dict(tr_report), sorted_dict(ts_report)):
             if isinstance(tr_v, dict) and isinstance(ts_v, dict):
                 tr_s = tr_v["support"]
                 ts_s = ts_v["support"]
                 cum_report[tr_k] = {}
                 for m in ["precision", "recall", "f1-score"]:
-                    cum_report[tr_k][m] = (tr_v[m] * tr_s + ts_v[m] * ts_s) / (
-                        tr_s + ts_s
-                    )
+                    cum_report[tr_k][m] = (tr_v[m] * tr_s + ts_v[m] * ts_s) / (tr_s + ts_s)
             elif isinstance(tr_v, float) and isinstance(ts_v, float):
                 tr_s = tr_report["macro avg"]["support"]
                 ts_s = ts_report["macro avg"]["support"]

@@ -1,5 +1,8 @@
 import os
 from collections import deque
+import typing as tp
+from pathlib import Path
+from collections.abc import Iterable
 
 import random
 import numpy as np
@@ -28,22 +31,34 @@ class BinaryDataset(data.Dataset):
     
     TODO: Auto un-gzip files if they have g-zip compression 
     """
-    def __init__(self, good_dir, bad_dir, sort_by_size=False, max_len=4000000, shuffle=False):
+    def __init__(self,
+            good_dir: tp.Optional[tp.Union[str, Path, tp.Iterable]],
+            bad_dir: tp.Optional[tp.Union[str, Path, tp.Iterable]],
+            sort_by_size=False,
+            max_len=4000000,
+            shuffle=False
+    ):
         
         #Tuple (file_path, label, file_size)
         self.all_files = []
         self.max_len = max_len
-        
-        for roor_dir, dirs, files in os.walk(good_dir):
-            for file in files:
-                to_add = os.path.join(roor_dir,file)
-                self.all_files.append(  (to_add, 0, os.path.getsize(to_add))  )
-                
-        for roor_dir, dirs, files in os.walk(bad_dir):
-            for file in files:
-                to_add = os.path.join(roor_dir,file)
-                self.all_files.append(   (to_add, 1, os.path.getsize(to_add))  )
-                
+
+        if isinstance(good_dir, (str, Path)):
+            for roor_dir, dirs, files in os.walk(good_dir):
+                for file in files:
+                    to_add = os.path.join(roor_dir,file)
+                    self.all_files.append(  (to_add, 0, os.path.getsize(to_add))  )
+        elif isinstance(good_dir, Iterable):
+            self.all_files.extend([(f, 0, os.path.getsize(f)) for f in good_dir])
+
+        if isinstance(bad_dir, (str, Path)):
+            for roor_dir, dirs, files in os.walk(bad_dir):
+                for file in files:
+                    to_add = os.path.join(roor_dir,file)
+                    self.all_files.append(   (to_add, 1, os.path.getsize(to_add))  )
+        elif isinstance(bad_dir, Iterable):
+            self.all_files.extend([(f, 1, os.path.getsize(f)) for f in bad_dir])
+
         if sort_by_size:
             self.all_files.sort(key=lambda filename: filename[2])
 
