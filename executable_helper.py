@@ -154,6 +154,7 @@ def text_section_bounds(
     min_size: tp.Optional[int] = None,
     max_size: tp.Optional[int] = None,
     errors: ErrorMode = "raise",
+    verbose: bool = False,
 ) -> tp.Generator[tp.Tuple[Path, int, int], None, None]:
     """
     Get the lower and upper bounds of the .text section from non-problematic PE files.
@@ -193,7 +194,8 @@ def text_section_bounds(
             count += 1
             yield f, lower, upper
 
-    print(f"Found {count} / {i} good files.")
+    if verbose:
+        print(f"Found {count} / {i} good files.")
 
 
 def text_section_data(
