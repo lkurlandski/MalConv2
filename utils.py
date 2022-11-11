@@ -4,6 +4,8 @@
 
 import multiprocessing.pool as mpp
 from pathlib import Path
+from pprint import pformat
+import traceback
 import typing as tp
 
 
@@ -55,6 +57,7 @@ def sorted_dict(d: tp.Dict[str, float]) -> tp.List[tp.Tuple[str, float]]:
 
 def istarmap(self, func: tp.Callable, iterable: tp.Iterable, chunksize: int = 1) -> tp.Generator:
     # For Python >= 3.8
+    # https://stackoverflow.com/questions/57354700/starmap-combined-with-tqdm
     self._check_running()
     if chunksize < 1:
         raise ValueError("Chunksize must be 1+, not {0:n}".format(chunksize))
@@ -72,6 +75,7 @@ def istarmap(self, func: tp.Callable, iterable: tp.Iterable, chunksize: int = 1)
 
 def istarmap_(self, func: tp.Callable, iterable: tp.Iterable, chunksize: int = 1) -> tp.Generator:
     # For Python <= 3.7
+    # https://stackoverflow.com/questions/57354700/starmap-combined-with-tqdm
     if self._state != mpp.RUN:
         raise ValueError("Pool not running")
 
@@ -89,16 +93,40 @@ def istarmap_(self, func: tp.Callable, iterable: tp.Iterable, chunksize: int = 1
     return (item for chunk in result for item in chunk)
 
 
-# TODO: untested
+# TODO: replace with itertools.dropwhile
 def consume_until(
     gen: tp.Generator,
     skip_idx: int = None,
     skip_val: str = None,
     process_element: tp.Callable = None,
 ) -> None:
+    if skip_idx is None and (skip_val is None or process_element is None):
+        raise ValueError("Either skip_idx or skip_val and process_element must be specified.")
+
     for i, v in enumerate(gen):
         if i == skip_idx:
             return
-        else:
-            if process_element(v) == skip_val:
-                return
+        if process_element is not None and process_element(v) == skip_val:
+            return
+
+
+def exception_info(e: Exception, locals_: tp.Dict[str, tp.Any]) -> str:
+    locals_.update(
+        **{f"k.shape": v.shape for k, v in locals_.items() if hasattr(v, "shape")},
+        **{f"k.dtype": v.dtype for k, v in locals_.items() if hasattr(v, "dtype")},
+        **{f"len(k)": len(v) for k, v in locals_.items() if hasattr(v, "__len__")},
+    )
+    s = "\n".join(
+        [
+            error_line(),
+            str(e),
+            traceback.format_exc(),
+            f"locals:\n{pformat(locals_)}",
+            error_line(),
+        ]
+    )
+    return s
+
+
+def raise_error(e: Exception, pre: str = "", post: str = "") -> None:
+    raise type(e)(pre + e.message + post)

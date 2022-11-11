@@ -16,7 +16,12 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = torch.device("cpu")
 torch.backends.cudnn.enabled = False
 
-print(f"CONFIG\n{'-' * 88}")
-print(f"{SEED=}")
-print(f"{device=}")
-print(f"{torch.backends.cudnn.enabled=}")
+
+def print_configurations():
+    print(f"CONFIG\n{'-' * 88}")
+    print(f"{SEED=}")
+    print(f"{device=}")
+    print(f"{torch.backends.cudnn.enabled=}")
+
+
+print_configurations()

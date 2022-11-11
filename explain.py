@@ -34,7 +34,7 @@ from classifier import (
     WINDOWS_TRAIN_PATH,
 )
 from config import device
-from utils import batch, error_line, section_header
+from utils import batch, consume_until, error_line, section_header
 from typing_ import ForwardFunction, Pathlike
 
 
@@ -235,7 +235,7 @@ def kernel_shap(
         print(section_header("", start_with_newline=False))
     output_root.mkdir(exist_ok=True)
     alg = KernelShap(forward_func)
-    for mask_size in [256]:
+    for mask_size in [512]:
         feature_mask = get_feature_mask(inputs, mask_size)[0]
         for n_samples in [50]:
             for perturbations_per_eval in [1]:
@@ -622,23 +622,25 @@ def explain_pretrained_malconv(
         batch_size=batch_size,
     )
     data = (
-        (benign_dataset, benign_loader, "benign"),
-        (malicious_dataset, malicious_loader, "malicious"),
+        (benign_dataset, benign_loader, "benign", None),
+        (malicious_dataset, malicious_loader, "malicious", None),
     )
 
     print(section_header("Captum"))
     # We do not want to apply the softmax layer to the forward function, I think
     forward_functions = {
-        softmax: forward_function_malconv(model, softmax) for softmax in (False,)  # (False, True)
+        softmax: forward_function_malconv(model, softmax) for softmax in (True,)  # (False, True)
     }
     layers = ["fc_2"]  # ["embd", "conv_1", "conv_2", "fc_1","fc_2"]
     print(pformat(f"forward_functions={list(forward_functions.keys())}"))
     print(pformat(f"{layers=}"))
 
-    for d, l, c in data:
+    for d, l, c, skip_idx in data:
         print(section_header(f"Working on Attributions for class {c}"))
-        batched_files = batch([Path(e[0]) for e in d.all_files], l.batch_size)
-        for (X, _), files in tqdm(zip(l, batched_files), total=len(d) / batch_size):
+        gen = zip(l, batch([Path(e[0]) for e in d.all_files], l.batch_size))
+        if (skip_idx := (0 if skip_idx is None else skip_idx)) > 0:
+            consume_until(gen, skip_idx=skip_idx)
+        for i, ((X, _), files) in enumerate(tqdm(gen, total=len(d) / batch_size, initial=skip_idx)):
             try:
                 explain_batch(
                     model,
