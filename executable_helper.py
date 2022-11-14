@@ -64,16 +64,31 @@ def check_file_length(f: Pathlike, min_bytes: int = 1) -> int:
     return length
 
 
-def read_binary(file: Path, mode: str = "rb", max_len: int = None) -> np.ndarray:
+def read_binary(
+    file: Path,
+    mode: str = "rb",
+    max_len: int = None,
+    l: int = None,
+    u: int = None,
+) -> np.ndarray:
     """
     Read a binary file into a numpy array with MalConv2 technique.
     """
+
+    def read_handle(handle):
+        n_bytes = -1
+        if l is not None:
+            handle.seek(l)
+            n_bytes = u - l if max_len is None else min(max_len, u - l)
+        return handle.read(n_bytes)
+
     try:
-        with gzip.open(file, mode) as f:
-            x = f.read(max_len)
+        with gzip.open(file, mode) as handle:
+            x = read_handle(handle)
     except OSError:
-        with open(file, mode) as f:
-            x = f.read(max_len)
+        with open(file, mode) as handle:
+            x = read_handle(handle)
+
     x = np.frombuffer(x, dtype=np.uint8).astype(np.int16) + 1
     return x
 
@@ -125,6 +140,7 @@ def _text_section_bounds_lief(f: Pathlike) -> tp.Tuple[int, int]:
 def _text_section_bounds(
     f: Pathlike,
     toolkit: ExeToolkit,
+    errors: ErrorMode,
 ) -> tp.Tuple[int, int]:
     """
     Get the lower/upper bounds of the .text section from a PE file.
@@ -133,22 +149,32 @@ def _text_section_bounds(
     """
     length = check_file_length(f)
 
-    if toolkit == "pefile":
-        lower, upper = _text_section_bounds_pefile(f)
-    elif toolkit == "lief":
-        lower, upper = _text_section_bounds_lief(f)
-    else:
-        raise ValueError(f"Unknown toolkit: {toolkit}")
+    try:
+        if toolkit == "pefile":
+            lower, upper = _text_section_bounds_pefile(f)
+        elif toolkit == "lief":
+            lower, upper = _text_section_bounds_lief(f)
+        else:
+            raise ValueError(f"Unknown toolkit: {toolkit}")
+    except BadBinaryError as e:
+        if errors == "replace":
+            return None, None
+        else:
+            raise e
 
-    if upper > length:
-        raise TextSectionUpperLargerThanFileError(f)
-    if lower == upper:
-        raise EmptyTextSectionError(f)
+    try:
+        if upper > length:
+            raise TextSectionUpperLargerThanFileError(f)
+        if lower == upper:
+            raise EmptyTextSectionError(f)
+    except BadBinaryError as e:
+        if errors != "replace":
+            raise e
 
     return lower, upper
 
 
-def text_section_bounds(
+def stream_text_section_bounds(
     files: tp.Union[tp.Iterable[Pathlike], Pathlike],
     toolkit: ExeToolkit,
     min_size: tp.Optional[int] = None,
@@ -166,7 +192,7 @@ def text_section_bounds(
     count = 0
     for i, f in enumerate(map(Path, files), 1):
         try:
-            lower, upper = _text_section_bounds(f, toolkit)
+            lower, upper = _text_section_bounds(f, toolkit, errors)
         except BadBinaryError as e:
             if errors == "raise":
                 raise e
@@ -198,15 +224,16 @@ def text_section_bounds(
         print(f"Found {count} / {i} good files.")
 
 
-def text_section_data(
+def stream_text_section_data(
     files: tp.Union[tp.Iterable[Pathlike], Pathlike],
     toolkit: ExeToolkit,
     datatype: tp.Literal["bytes", "numpy", "torch"],
     min_size: tp.Optional[int] = None,
     max_size: tp.Optional[int] = None,
     errors: ErrorMode = "raise",
+    verbose: bool = False,
 ) -> tp.Generator[tp.Tuple[Path, int, int, tp.Union[str, np.ndarray, Tensor]], None, None]:
-    for f, l, u in text_section_bounds(files, toolkit, min_size, max_size, errors):
+    for f, l, u in stream_text_section_bounds(files, toolkit, min_size, max_size, errors, verbose):
         if datatype == "bytes":
             raise NotImplementedError()
         elif datatype == "numpy":
@@ -220,6 +247,26 @@ def text_section_data(
         yield f, l, u, x
 
 
+def generate_text_section_bounds_file(
+    files: tp.Union[Pathlike, tp.Iterable[Pathlike]],
+    toolkit: ExeToolkit,
+    outfile: Pathlike,
+    min_size: tp.Optional[int] = None,
+    max_size: tp.Optional[int] = None,
+    errors: ErrorMode = "raise",
+    verbose: bool = False,
+) -> None:
+    """
+    Generate a file containing the lower and upper bounds of the .text section from non-problematic PE files.
+    """
+    with open(outfile, "w") as handle:
+        handle.write("file,lower,upper\n")
+        for f, l, u in stream_text_section_bounds(
+            files, toolkit, min_size, max_size, errors, verbose
+        ):
+            handle.write(f"{f.as_posix()},{l},{u}\n")
+
+
 def _test(compare=False, analyze=True):
     import numpy as np
     import pandas as pd
@@ -230,7 +277,7 @@ def _test(compare=False, analyze=True):
         total = len(list(Path(SOREL_TRAIN_PATH).iterdir()))
 
         print("Testing LIEF Functions")
-        gen = text_section_bounds(
+        gen = stream_text_section_bounds(
             files=Path(SOREL_TRAIN_PATH).iterdir(),
             toolkit="lief",
             errors="warn",
@@ -241,7 +288,7 @@ def _test(compare=False, analyze=True):
             lief_files[f.name] = (l, u)
 
         print("Testing pefile Functions")
-        gen = text_section_bounds(
+        gen = stream_text_section_bounds(
             files=Path(SOREL_TRAIN_PATH).iterdir(),
             toolkit="pefile",
             errors="warn",
@@ -288,4 +335,20 @@ def _test(compare=False, analyze=True):
 
 
 if __name__ == "__main__":
-    _test(True, True)
+    # _test(True, True)
+    import classifier as clf
+
+    # for toolkit in ["pefile", "lief"]:
+    #     for errors in ["ignore", "replace"]:
+    #         print(toolkit)
+    #         generate_text_section_bounds_file(
+    #             (
+    #                 list(clf.SOREL_TEST_PATH.iterdir())
+    #                 + list(clf.SOREL_TRAIN_PATH.iterdir())
+    #                 + list(clf.WINDOWS_TEST_PATH.iterdir())
+    #                 + list(clf.WINDOWS_TRAIN_PATH.iterdir())
+    #             ),
+    #             toolkit,
+    #             f"outputs/text_section_bounds_{toolkit}_{errors}.csv",
+    #             errors=errors,
+    #         )

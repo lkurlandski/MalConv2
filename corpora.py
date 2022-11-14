@@ -22,7 +22,7 @@ from classifier import get_data
 from executable_helper import read_binary
 
 
-# TODO: remove this asset, as it has been replaced by executable_helper.text_section_bounds
+# TODO: remove this asset, as it has been replaced by executable_helper.stream_text_section_bounds
 def code_section_offset_bounds(f: Path, errors: str = "raise", silence_lief: bool = True):
     """
     Returns the lower and upper bounds of the .text section in the PE file.

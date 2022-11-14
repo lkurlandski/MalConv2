@@ -59,8 +59,8 @@ def istarmap(self, func: tp.Callable, iterable: tp.Iterable, chunksize: int = 1)
     # For Python >= 3.8
     # https://stackoverflow.com/questions/57354700/starmap-combined-with-tqdm
     self._check_running()
-    if chunksize < 1:
-        raise ValueError("Chunksize must be 1+, not {0:n}".format(chunksize))
+    # if chunksize < 1:
+    #     raise ValueError("Chunksize must be 1+, not {0:n}".format(chunksize))
 
     task_batches = mpp.Pool._get_tasks(func, iterable, chunksize)
     result = mpp.IMapIterator(self)
