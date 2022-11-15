@@ -1,5 +1,7 @@
 """
 
+- Use the BaseOfCode and SizeOfCode instead of the .text section
+https://blog.kowalczyk.info/articles/pefileformat.html
 """
 
 import gzip
