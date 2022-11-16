@@ -4,6 +4,7 @@
 https://blog.kowalczyk.info/articles/pefileformat.html
 """
 
+from collections import OrderedDict
 import gzip
 from pathlib import Path
 from pprint import pformat, pprint
@@ -54,6 +55,27 @@ class EmptyTextSectionError(TextSectionError, EmptySectionError):
 
 class TextSectionUpperLargerThanFileError(TextSectionError, SectionUpperLargerThanFileError):
     ...
+
+
+def get_overlapping_bounds(bounds: tp.Dict[str, tp.Tuple[int, int]]) -> tp.Dict[str, bool]:
+    overlapping = {k: False for k in bounds}
+    l_, u_ = None, None  # Previous bounds
+    for n, (l, u) in bounds.items():  # Sort by lower bound
+        if (l_ and u_) and ((l < u_) or u < l):
+            overlapping[n] = True
+        l_, u_ = l, u
+    return overlapping
+
+
+def get_section_bounds_pefile(pe: pefile.PE) -> tp.Dict[str, tp.Tuple[int, int]]:
+    bounds = {}
+    for section in pe.sections:
+        n = section.Name.decode("utf-8", errors="ignore")
+        l = section.PointerToRawData
+        u = l + section.SizeOfRawData
+        bounds[n] = (l, u)
+    bounds = OrderedDict(sorted(bounds.items(), key=lambda x: x[1][0]))
+    return bounds
 
 
 def check_file_length(f: Pathlike, min_bytes: int = 1) -> int:
