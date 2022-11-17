@@ -12,6 +12,7 @@ dependencies:
   - argon2-cffi-bindings=21.2.0=py38h7f8727e_0
   - astroid=2.11.7=py38h06a4308_0
   - asttokens=2.0.5=pyhd3eb1b0_0
+  - atk-1.0=2.36.0=ha1a6a79_0
   - attrs=21.4.0=pyhd3eb1b0_0
   - autopage=0.5.1=pyhd8ed1ab_0
   - backcall=0.2.0=pyhd3eb1b0_0
@@ -22,9 +23,10 @@ dependencies:
   - bottleneck=1.3.5=py38h7deecbd_0
   - brotli=1.0.9=h5eee18b_7
   - brotli-bin=1.0.9=h5eee18b_7
-  - ca-certificates=2022.07.19=h06a4308_0
+  - ca-certificates=2022.10.11=h06a4308_0
+  - cairo=1.16.0=h19f5f5c_2
   - captum=0.4.1=0
-  - certifi=2022.6.15=py38h06a4308_0
+  - certifi=2022.9.24=py38h06a4308_0
   - cffi=1.15.1=py38h74dc2b5_0
   - click=8.0.4=py38h06a4308_0
   - cliff=4.0.0=pyhd8ed1ab_0
@@ -42,14 +44,29 @@ dependencies:
   - executing=0.8.3=pyhd3eb1b0_0
   - expat=2.4.9=h6a678d5_0
   - fftw=3.3.9=h27cfd23_1
+  - font-ttf-dejavu-sans-mono=2.37=hd3eb1b0_0
+  - font-ttf-inconsolata=2.001=hcb22688_0
+  - font-ttf-source-code-pro=2.030=hd3eb1b0_0
+  - font-ttf-ubuntu=0.83=h8b1ccd4_0
   - fontconfig=2.13.1=h6c09931_0
+  - fonts-anaconda=1=h8fa9717_0
+  - fonts-conda-ecosystem=1=hd3eb1b0_0
   - fonttools=4.25.0=pyhd3eb1b0_0
   - freetype=2.12.1=h4a9f257_0
+  - fribidi=1.0.10=h7b6447c_0
+  - gdk-pixbuf=2.42.8=h433bba3_0
   - giflib=5.2.1=h7b6447c_0
   - glib=2.69.1=h4ff587b_1
+  - gobject-introspection=1.72.0=py38hbb6d50b_0
+  - gprof2dot=2019.11.30=py_0
+  - graphite2=1.3.14=h295c915_1
+  - graphviz=2.50.0=h3cd0ef9_0
   - greenlet=1.1.1=py38h295c915_0
   - gst-plugins-base=1.14.0=h8213a91_2
   - gstreamer=1.14.0=h28cd5cc_2
+  - gtk2=2.24.33=h73c1081_2
+  - gts=0.7.6=hb67d8dd_3
+  - harfbuzz=4.3.0=hd55b92a_0
   - icu=58.2=he6710b0_3
   - importlib-metadata=4.11.3=py38h06a4308_0
   - importlib_metadata=4.11.3=hd3eb1b0_0
@@ -86,15 +103,18 @@ dependencies:
   - libevent=2.1.12=h8f2d780_0
   - libffi=3.3=he6710b0_2
   - libgcc-ng=11.2.0=h1234567_1
+  - libgd=2.3.3=h695aa2c_1
   - libgfortran-ng=11.2.0=h00389a5_1
   - libgfortran5=11.2.0=h1234567_1
   - libgomp=11.2.0=h1234567_1
   - libllvm10=10.0.1=hbcb73fb_5
   - libpng=1.6.37=hbc83047_0
   - libpq=12.9=h16c4e8d_3
+  - librsvg=2.54.4=h19fe530_0
   - libsodium=1.0.18=h7b6447c_0
   - libstdcxx-ng=11.2.0=h1234567_1
   - libtiff=4.4.0=hecacb30_0
+  - libtool=2.4.6=h295c915_1008
   - libuuid=1.0.3=h7f8727e_2
   - libwebp=1.2.4=h11a3e52_0
   - libwebp-base=1.2.4=h5eee18b_0
@@ -128,11 +148,12 @@ dependencies:
   - numexpr=2.8.3=py38h807cd23_0
   - numpy=1.22.3=py38he7a7128_0
   - numpy-base=1.22.3=py38hf524024_0
-  - openssl=1.1.1q=h7f8727e_0
+  - openssl=1.1.1s=h7f8727e_0
   - optuna=3.0.2=pyhd8ed1ab_0
   - packaging=21.3=pyhd3eb1b0_0
   - pandas=1.4.4=py38h6a678d5_0
   - pandocfilters=1.5.0=pyhd3eb1b0_0
+  - pango=1.50.7=h05da053_0
   - parso=0.8.3=pyhd3eb1b0_0
   - pathspec=0.9.0=py38h06a4308_0
   - pbr=5.6.0=pyhd3eb1b0_0
@@ -141,6 +162,7 @@ dependencies:
   - pickleshare=0.7.5=pyhd3eb1b0_1003
   - pillow=9.2.0=py38hace64e9_1
   - pip=22.2.2=py38h06a4308_0
+  - pixman=0.40.0=h7f8727e_1
   - pkgutil-resolve-name=1.3.10=py38h06a4308_0
   - platformdirs=2.5.2=py38h06a4308_0
   - ply=3.11=py38_0

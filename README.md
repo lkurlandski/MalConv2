@@ -107,3 +107,8 @@ Richard Zak <rzak@lps.umd.edu>
   - Error on 002da0eff6ddb97f1e7496c55127de1c7c4785f2a13cb05619755c63b1532a62: integer division or modulo by zero
 - Use Neptune to track experiments instead of nested output structure
 - Make command-line interfaces to improve scripting
+
+
+Profiling:
+python -m cProfile -o output.pstats script.py
+gprof2dot --colour-nodes-by-selftime -f pstats output.pstats | dot -Tpng -o output.png
