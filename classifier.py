@@ -52,10 +52,11 @@ def forward_function_malconv(model, softmax: bool) -> tp.Callable[[Tensor], Tens
         return lambda x: model(x)[0]
 
 
-def confidence_scores(model: tp.Union[MalConv, MalConvGCT], X: Tensor) -> Tensor:
+def confidence_scores(model: tp.Union[MalConv, MalConvGCT], X: Tensor) -> np.ndarray:
     if X.dim() == 1:
         X = X.unsqueeze(0)
-    return F.softmax(model(X)[0], dim=-1).data[:, 1].detach().cpu().numpy().ravel()
+    with torch.no_grad():
+        return F.softmax(model(X)[0], dim=-1).data[:, 1].detach().cpu().numpy().ravel()
 
 
 def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:

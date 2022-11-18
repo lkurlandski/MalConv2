@@ -197,6 +197,9 @@ class LowMemConvBase(nn.Module):
         chunk_list = [torch.cat(c, dim=1)[0,:] for c in chunk_list]
         
         #Padd out shorter sequences to the longest one
+        # WARNING: padding the sequences causes different behavior in the model when in eval mode
+        # because the confidence and therefore the classification of the model of a particular
+        # example can vary slightly based upon which other examples accompany it in the batch.
         x_selected = torch.nn.utils.rnn.pad_sequence(chunk_list, batch_first=True)
         
         #Shape is not (B, L) Lets compute!

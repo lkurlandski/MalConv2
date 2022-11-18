@@ -10,9 +10,19 @@ import os
 import time
 import typing as tp
 
+import torch
+from torch import Tensor
 from tqdm import tqdm
 
-from classifier import SOREL_TRAIN_PATH, SOREL_TEST_PATH, WINDOWS_TRAIN_PATH, WINDOWS_TEST_PATH
+from classifier import (
+    confidence_scores,
+    get_model,
+    SOREL_TRAIN_PATH,
+    SOREL_TEST_PATH,
+    WINDOWS_TRAIN_PATH,
+    WINDOWS_TEST_PATH,
+)
+import config
 from utils import section_header
 
 
@@ -109,5 +119,78 @@ def move_output_files_around():
                 f.rename(mal_path / f.name)
 
 
+def different_model_outputs():
+    print("-" * 88)
+
+    model = get_model("gct")
+
+    X_sus = torch.load("most_suspicious.pt")
+    X_rnd = torch.load("random.pt")
+
+    print(f"{X_sus.shape=}")
+    print(f"{X_rnd.shape=}")
+    print(f"{torch.equal(X_sus, X_rnd)=}")
+
+    c_sus = confidence_scores(model, X_sus).tolist()
+    c_rnd = confidence_scores(model, X_rnd).tolist()
+
+    print(f"{c_sus=}")
+    print(f"{c_rnd=}")
+
+    print("-" * 88)
+
+    X_sus_0 = X_sus[0].unsqueeze(0)
+    X_sus_1 = X_sus[1].unsqueeze(0)
+    X_rnd_0 = X_rnd[0].unsqueeze(0)
+    X_rnd_1 = X_rnd[1].unsqueeze(0)
+
+    print(f"{torch.equal(X_sus_0, X_rnd_0)=}")
+    print(f"{torch.equal(X_sus_0, X_rnd_1)=}")
+    print(f"{torch.equal(X_sus_1, X_rnd_0)=}")
+    print(f"{torch.equal(X_sus_1, X_rnd_1)=}")
+
+    print()
+
+    c_sus_0 = confidence_scores(model, X_sus_0).tolist()
+    c_sus_1 = confidence_scores(model, X_sus_1).tolist()
+    c_rnd_0 = confidence_scores(model, X_rnd_0).tolist()
+    c_rnd_1 = confidence_scores(model, X_rnd_1).tolist()
+
+    print(f"{c_sus_0=}")
+    print(f"{c_sus_1=}")
+    print(f"{c_rnd_0=}")
+    print(f"{c_rnd_1=}")
+
+    print("-" * 88)
+
+    print(f"{torch.equal(X_sus[0], X_sus_0)=} {(c_sus[0]==c_sus_0[0])=}")
+    print(f"{torch.equal(X_sus[1], X_sus_1)=} {(c_sus[1]==c_sus_1[0])=}")
+    print(f"{torch.equal(X_rnd[0], X_rnd_0)=} {(c_rnd[0]==c_rnd_0[0])=}")
+    print(f"{torch.equal(X_rnd[1], X_rnd_1)=} {(c_rnd[1]==c_rnd_1[0])=}")
+
+    print("-" * 88)
+
+    print(f"{torch.equal(X_sus[1].unsqueeze(0), X_rnd[1].unsqueeze(0))=}")
+    c_sus_1 = confidence_scores(model, X_sus[1].unsqueeze(0)).tolist()
+    c_rnd_1 = confidence_scores(model, X_rnd[1].unsqueeze(0)).tolist()
+    print(f"{c_sus_1=}")
+    print(f"{c_rnd_1=}")
+
+    print("-" * 88)
+    print("PROBLEM: c_sus[1] != c_sus_1[0]")
+
+    os.environ["BATCH_OR_SINGLE"] = "batch"
+    c_sus = confidence_scores(model, X_sus).tolist()
+
+    os.environ["BATCH_OR_SINGLE"] = "single"
+    c_sus_1 = confidence_scores(model, X_sus[1].unsqueeze(0)).tolist()
+    print(f"{c_sus=}")
+    print(f"{c_sus_1=}")
+    second_tensor_as_batch = c_sus[1]
+    second_tensor_as_single = c_sus_1[0]
+    print(f"{second_tensor_as_batch=}")
+    print(f"{second_tensor_as_single=}")
+    print(f"{second_tensor_as_batch==second_tensor_as_single=}")
+
 if __name__ == "__main__":
-    run()
+    different_model_outputs()
