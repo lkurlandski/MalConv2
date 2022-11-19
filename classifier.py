@@ -341,7 +341,7 @@ def evaluate_pretrained_malconv(
 
 def evaluate_pretrained_malconv_save_results() -> None:
     model_name = "gct"
-    output = Path("output_model") / model_name
+    output = Path("outputs/model") / model_name
     output.mkdir(parents=True, exist_ok=True)
     (
         tr_confs,
