@@ -37,7 +37,7 @@ MODELS_PATH = Path("models")
 MALCONV_GCT_PATH = MODELS_PATH / "malconvGCT_nocat.checkpoint"
 MALCONV_PATH = MODELS_PATH / "malconv.checkpoint"
 BATCH_SIZE = 8
-MAX_LEN = 16, 000, 000  # 16000000 was used by the original authors
+MAX_LEN = 16000000
 PAD_VALUE = 0
 NUM_EMBEDDINGS = 257
 CONFIDENCE_THRESHOLD = 0.5
@@ -97,12 +97,14 @@ def get_dataset_and_loader(
     bad: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
     max_len: int = MAX_LEN,
     batch_size: int = BATCH_SIZE,
-    sampler: RandomChunkSampler = None,
+    shuffle_: bool = True,
+    sort_by_size: bool = True,
 ) -> tp.Tuple[BinaryDataset, DataLoader]:
-    dataset = BinaryDataset(good, bad, max_len=max_len, sort_by_size=False, shuffle=True)
+    dataset = BinaryDataset(good, bad, sort_by_size, max_len, shuffle_)
+    sampler = RandomChunkSampler(dataset, batch_size, shuffle_)
     loader_threads = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1)
     loader = DataLoader(
-        dataset,
+        dataset=dataset,
         batch_size=batch_size,
         num_workers=loader_threads,
         collate_fn=pad_collate_func,

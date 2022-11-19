@@ -225,18 +225,22 @@ def run(
         None,
         max_len=data_params.max_len,
         batch_size=data_params.batch_size,
+        shuffle_=True,
+        sort_by_size=True,
     )
     mal_dataset, mal_loader = cl.get_dataset_and_loader(
         None,
         chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir()),
         max_len=data_params.max_len,
         batch_size=data_params.batch_size,
+        shuffle_=True,
+        sort_by_size=True,
     )
 
     # Conglomerate the different data structures
     data = [
-        (ben_dataset, ben_loader, ben_oh),
         (mal_dataset, mal_loader, mal_oh),
+        (ben_dataset, ben_loader, ben_oh),
     ]
 
     # Run the explanation algorithm on each dataset
@@ -294,6 +298,7 @@ if __name__ == "__main__":
         p.get("ben_stop_idx"),
         p.get("mal_start_idx"),
         p.get("mal_stop_idx"),
+        p.get("errors"),
     )
     cfg.init(p.get("device"), p.getint("seed"))
     run(model_params, data_params, explain_params, control_params)
