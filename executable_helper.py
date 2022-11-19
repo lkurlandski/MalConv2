@@ -5,6 +5,7 @@ https://blog.kowalczyk.info/articles/pefileformat.html
 """
 
 from collections import OrderedDict
+from dataclasses import dataclass
 import gzip
 from pathlib import Path
 from pprint import pformat, pprint
@@ -55,6 +56,14 @@ class EmptyTextSectionError(TextSectionError, EmptySectionError):
 
 class TextSectionUpperLargerThanFileError(TextSectionError, SectionUpperLargerThanFileError):
     ...
+
+
+@dataclass
+class ExeParams:
+    text_section_bounds_file: Pathlike
+
+    def __post_init__(self):
+        self.text_section_bounds_file = Path(self.text_section_bounds_file)
 
 
 def get_overlapping_bounds(bounds: tp.Dict[str, tp.Tuple[int, int]]) -> tp.Dict[str, bool]:
