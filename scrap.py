@@ -22,7 +22,7 @@ from classifier import (
     WINDOWS_TRAIN_PATH,
     WINDOWS_TEST_PATH,
 )
-import config
+import cfg
 from utils import section_header
 
 

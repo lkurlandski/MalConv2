@@ -6,8 +6,6 @@ TODO:
         - Batch iteration (benign/malicious)
         - File index (benign/malicious)
         - File name (class agnostic)
-    - Fix the hack in explain_batch
-    - Add gpu/cpu control
 """
 
 from __future__ import annotations

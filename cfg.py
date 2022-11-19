@@ -10,7 +10,7 @@ import torch
 
 
 def print_config():
-    print("-" * 88, f"{'-' * 40} CONFIG {'-' * 41}", "-" * 88, sep = "\n")
+    print("-" * 88, f"{'-' * 40} CONFIG {'-' * 41}", "-" * 88, sep="\n")
     print(f"{seed=}")
     print(f"{device=}")
     print(f"{torch.backends.cudnn.enabled=}")

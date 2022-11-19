@@ -2,6 +2,7 @@
 
 """
 
+from dataclasses import dataclass
 import json
 import multiprocessing as mp
 from pathlib import Path
@@ -20,7 +21,7 @@ from binaryLoader import BinaryDataset, RandomChunkSampler, pad_collate_func
 from MalConv import MalConv
 from MalConvGCT_nocat import MalConvGCT
 
-from config import device
+import cfg
 from typing_ import Pathlike
 from utils import batch, sorted_dict
 
@@ -45,6 +46,19 @@ MalConvLike = tp.Union[MalConv, MalConvGCT]
 ModelName = tp.Literal["two", "gct"]
 
 
+@dataclass
+class ModelParams:
+    name: tp.Literal["two", "gct"]
+
+
+@dataclass
+class DataParams:
+    max_len: int
+    batch_size: int
+    good: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]] = None
+    bad: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]] = None
+
+
 def forward_function_malconv(model, softmax: bool) -> tp.Callable[[Tensor], Tensor]:
     if softmax:
         return lambda x: F.softmax(model(x)[0], dim=-1)
@@ -60,7 +74,7 @@ def confidence_scores(model: tp.Union[MalConv, MalConvGCT], X: Tensor) -> np.nda
 
 
 def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:
-    torch.rand(4).to(device)  # This may help improve loading speed?
+    torch.rand(4).to(cfg.device)  # This may help improve loading speed?
     if model_name == "gct":
         checkpoint_path = MALCONV_GCT_PATH
         model = MalConvGCT(channels=256, window_size=256, stride=64)
@@ -69,9 +83,9 @@ def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:
         model = MalConv()
     else:
         raise ValueError(f"Invalid model_name: {model_name}")
-    state = torch.load(checkpoint_path, map_location=device)
+    state = torch.load(checkpoint_path, map_location=cfg.device)
     model.load_state_dict(state["model_state_dict"], strict=False)
-    model.to(device)
+    model.to(cfg.device)
     model.eval()
     if verbose:
         print(f"{model=}")
@@ -223,7 +237,7 @@ def _evaluate_pretrain_malconv(
         (inputs, labels),
         f,
     ) in tqdm(zip(loader, batched_files), total=len(loader)):
-        inputs, labels = inputs.to(device), labels.to(device)
+        inputs, labels = inputs.to(cfg.device), labels.to(cfg.device)
         # Get model outputs
         outputs, penultimate_activ, conv_active = model(inputs)
         # The values of the maximally stimulated neuron and the indices of that neuron (0 or 1)
@@ -377,4 +391,5 @@ def evaluate_pretrained_malconv_save_results() -> None:
 
 
 if __name__ == "__main__":
+    cfg.init("cuda:0", 0)
     evaluate_pretrained_malconv_save_results()
