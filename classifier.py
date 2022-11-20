@@ -100,15 +100,20 @@ def get_dataset_and_loader(
     shuffle_: bool = True,
     sort_by_size: bool = True,
 ) -> tp.Tuple[BinaryDataset, DataLoader]:
+    """
+    Return a Dataset and a DataLoader.
+
+    Even when shuffled, the DataLoader will yield data that corresponds to the
+    BinaryDataset's all_files attribute. Using the RandomChunkSampler will
+    break this correspondence, so it is unused.
+    """
     dataset = BinaryDataset(good, bad, sort_by_size, max_len, shuffle_)
-    sampler = RandomChunkSampler(dataset, batch_size, shuffle_)
     loader_threads = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1)
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
         num_workers=loader_threads,
         collate_fn=pad_collate_func,
-        sampler=sampler,
     )
     return dataset, loader
 

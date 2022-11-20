@@ -14,14 +14,7 @@ import torch
 from torch import Tensor
 from tqdm import tqdm
 
-from classifier import (
-    confidence_scores,
-    get_model,
-    SOREL_TRAIN_PATH,
-    SOREL_TEST_PATH,
-    WINDOWS_TRAIN_PATH,
-    WINDOWS_TEST_PATH,
-)
+import classifier as cl
 import cfg
 from utils import section_header
 
@@ -191,6 +184,7 @@ def different_model_outputs():
     print(f"{second_tensor_as_batch=}")
     print(f"{second_tensor_as_single=}")
     print(f"{second_tensor_as_batch==second_tensor_as_single=}")
+
 
 if __name__ == "__main__":
     different_model_outputs()

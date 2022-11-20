@@ -339,14 +339,16 @@ def run(
                 attribs = explain_batch(
                     explain_params, model, forward_function, inputs, lowers, uppers
                 )
-                for i in range(len(files)):
-                    torch.save(attribs[i], oh.output_path / (files[i].name + ".pt"))
+                for a, f in zip(attribs, files):
+                    torch.save(a, oh.output_path / (f.name + ".pt"))
             except Exception as e:
-                if control_params.errors == "warn":
-                    print(exception_info(e, locals()))
-                elif control_params.errors == "ignore":
+                if control_params.errors == "ignore":
                     pass
                 else:
+                    ignore = {"lowers", "uppers", "ben_fab", "mal_fab", "data"}
+                    locals_ = {k: v for k, v in locals().items() if k not in ignore}
+                    print(exception_info(e, locals_))
+                if control_params.errors == "raise":
                     raise e
 
 

@@ -109,7 +109,7 @@ def read_binary(
     """
 
     def read_handle(handle):
-        n_bytes = -1
+        n_bytes = -1 if max_len is None else max_len
         if l is not None:
             handle.seek(l)
             n_bytes = u - l if max_len is None else min(max_len, u - l)
