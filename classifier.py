@@ -91,13 +91,13 @@ def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:
         print(f"{model=}")
     return model
 
-
+# TODO: attempt to integrate the RandomChunkSampler
 def get_dataset_and_loader(
     good: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
     bad: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
     max_len: int = MAX_LEN,
     batch_size: int = BATCH_SIZE,
-    shuffle_: bool = True,
+    shuffle_: bool = False,
     sort_by_size: bool = True,
 ) -> tp.Tuple[BinaryDataset, DataLoader]:
     """
@@ -107,6 +107,8 @@ def get_dataset_and_loader(
     BinaryDataset's all_files attribute. Using the RandomChunkSampler will
     break this correspondence, so it is unused.
     """
+    if shuffle_ and sort_by_size:
+        raise ValueError("Specifying both shuffle_ and sort_by_size does not make sense.")
     dataset = BinaryDataset(good, bad, sort_by_size, max_len, shuffle_)
     loader_threads = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1)
     loader = DataLoader(

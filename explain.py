@@ -305,7 +305,7 @@ def run(
         None,
         max_len=data_params.max_len,
         batch_size=data_params.batch_size,
-        shuffle_=True,
+        shuffle_=False,
         sort_by_size=True,
     )
     mal_dataset, mal_loader = cl.get_dataset_and_loader(
@@ -313,7 +313,7 @@ def run(
         mal_fab.files,
         max_len=data_params.max_len,
         batch_size=data_params.batch_size,
-        shuffle_=True,
+        shuffle_=False,
         sort_by_size=True,
     )
 
