@@ -293,11 +293,12 @@ def generate_text_section_bounds_file(
     Generate a file containing the lower and upper bounds of the .text section from non-problematic PE files.
     """
     with open(outfile, "w") as handle:
-        handle.write("file,lower,upper\n")
+        handle.write("file,lower,upper,size\n")
         for f, l, u in stream_text_section_bounds(
             files, toolkit, min_size, max_size, errors, verbose
         ):
-            handle.write(f"{f.as_posix()},{l},{u}\n")
+            s = f.stat().st_size
+            handle.write(f"{f.as_posix()},{l},{u},{s}\n")
 
 
 def _test(compare=False, analyze=True):
@@ -368,20 +369,22 @@ def _test(compare=False, analyze=True):
 
 
 if __name__ == "__main__":
-    # _test(True, True)
-    import classifier as clf
+    import classifier as cl
 
-    # for toolkit in ["pefile", "lief"]:
-    #     for errors in ["ignore", "replace"]:
-    #         print(toolkit)
-    #         generate_text_section_bounds_file(
-    #             (
-    #                 list(clf.SOREL_TEST_PATH.iterdir())
-    #                 + list(clf.SOREL_TRAIN_PATH.iterdir())
-    #                 + list(clf.WINDOWS_TEST_PATH.iterdir())
-    #                 + list(clf.WINDOWS_TRAIN_PATH.iterdir())
-    #             ),
-    #             toolkit,
-    #             f"outputs/text_section_bounds_{toolkit}_{errors}.csv",
-    #             errors=errors,
-    #         )
+    for toolkit in ["pefile", "lief"]:
+        for errors in ["ignore", "replace"]:
+            print(toolkit, errors)
+            outfile = Path(f"outputs/dataset/text_section_bounds_{toolkit}_{errors}.csv")
+            if outfile.exists():
+                continue
+            generate_text_section_bounds_file(
+                (
+                    list(cl.SOREL_TEST_PATH.iterdir())
+                    + list(cl.SOREL_TRAIN_PATH.iterdir())
+                    + list(cl.WINDOWS_TEST_PATH.iterdir())
+                    + list(cl.WINDOWS_TRAIN_PATH.iterdir())
+                ),
+                toolkit,
+                outfile,
+                errors=errors,
+            )

@@ -91,6 +91,7 @@ def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:
         print(f"{model=}")
     return model
 
+
 # TODO: attempt to integrate the RandomChunkSampler
 def get_dataset_and_loader(
     good: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
