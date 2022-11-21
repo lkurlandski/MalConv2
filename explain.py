@@ -2,13 +2,14 @@
 Explanation algorithms.
 
 TODO:
-    - Add a way to kickstart the explanation process from a specific:
-        - Batch iteration (benign/malicious)
-        - File index (benign/malicious)
-        - File name (class agnostic)
+    - Add documentation for the valid parameters in the config files
+    - Alter the output path to use the default arguments passed to attribute
+    - Refactor the OutputPath to contain the benign and native splits natively?
 """
 
 from __future__ import annotations
+
+import inspect
 from argparse import ArgumentParser
 from collections import OrderedDict
 from configparser import ConfigParser
@@ -29,7 +30,7 @@ from torch import Tensor
 import classifier as cl
 import cfg
 import executable_helper
-from utils import batch, ceil_divide, exception_info
+from utils import batch, ceil_divide, exception_info, str_type_cast
 from typing_ import ForwardFunction, Pathlike
 
 
@@ -37,9 +38,12 @@ BASELINE = cl.PAD_VALUE
 TARGET = 1
 
 
-# Not intended as a direct interface to the attribute method of an explanation algorithm.
 @dataclass
 class AttributeParams:
+    """
+    Not intended as a direct interface to the attribute method of an explanation algorithm.
+    Keeping the parameters in alphabetical order allows for easy access with the OutputHelper.
+    """
     baselines: int = BASELINE
     feature_mask_mode: tp.Literal["all", ".text"] = None
     feature_mask_size: int = None
@@ -56,6 +60,52 @@ class AttributeParams:
 
     def __dict__(self) -> OrderedDict:
         return OrderedDict((k, v) for k, v in sorted(self.__dict__))
+
+    def cast_types(self) -> AttributeParams:
+        try:
+            self.baselines = int(self.baselines)
+        except ValueError:
+            self.baselines = None
+
+        self.feature_mask_mode = str(self.feature_mask_mode)
+        if self.feature_mask_mode == "None":
+            self.feature_mask_mode = None
+
+        try:
+            self.feature_mask_size = int(self.feature_mask_size)
+        except ValueError:
+            self.feature_mask_size = None
+
+        self.method = str(self.method)
+        if self.method == "None":
+            self.method = None
+
+        try:
+            self.n_steps = int(self.n_steps)
+        except ValueError:
+            self.n_steps = None
+
+        try:
+            self.perturbations_per_eval = int(self.perturbations_per_eval)
+        except ValueError:
+            self.perturbations_per_eval = None
+
+        try:
+            self.sliding_window_shapes_size = int(self.sliding_window_shapes_size)
+        except ValueError:
+            self.sliding_window_shapes_size = None
+
+        try:
+            self.strides = int(self.strides)
+        except ValueError:
+            self.strides = None
+
+        try:
+            self.target = int(self.target)
+        except ValueError:
+            self.target = None
+
+        return self
 
 
 @dataclass
@@ -102,7 +152,7 @@ class OutputHelper:
         alg: str,
         attrib_params: AttributeParams,
         *,
-        split: str = None,
+        split: str = "all",
     ) -> None:
         self.output_root = Path(output_root)
         self.softmax = softmax
@@ -117,8 +167,7 @@ class OutputHelper:
         components = list(self.dict.items())
         components += list(asdict(self.attrib_params).items())
         components = ["__".join([k, str(v)]) for k, v in components]
-        if self.split is not None:
-            components.append(self.split)
+        components.append(self.split)
         return components
 
     @classmethod
@@ -133,6 +182,33 @@ class OutputHelper:
             explain_params.attrib_params,
             split=split,
         )
+
+    @classmethod
+    def from_path(cls, output_path: Pathlike) -> OutputHelper:
+        output_path = Path(output_path)
+        split = output_path.parts[-1]
+        l_1 = len(inspect.getmembers(AttributeParams)[0][1])
+        args = output_path.parts[-(l_1 + 1) : -1]
+        args = [a.split("__")[1] for a in args]
+        attrib_params = AttributeParams(*tuple(reversed(args))).cast_types()
+        l_2 = len(inspect.signature(cls.__init__).parameters) - 4
+        output_root = Path().joinpath(*output_path.parts[: -(l_1 + l_2 + 1)])
+        args = output_path.parts[-(l_1 + l_2 + 1) : -(l_1 + 1)]
+        args = [a.split("__")[1] for a in args]
+        args = list(str_type_cast(args))
+        full_args = [output_root] + args + [attrib_params]
+        return cls(*full_args, split=split)
+
+    @staticmethod
+    def from_path_parent(output_path_parent: Pathlike) -> tp.Dict[str, OutputHelper]:
+        output_path = Path(output_path_parent)
+        splits = [p.name for p in output_path.iterdir() if p.is_dir()]
+        splits = splits if splits else ["all"]
+        output_helpers = {}
+        for split in splits:
+            oh = OutputHelper.from_path(output_path / split)
+            output_helpers[split] = oh
+        return output_helpers
 
 
 class FeatureMask:
