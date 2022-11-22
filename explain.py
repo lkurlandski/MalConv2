@@ -305,24 +305,6 @@ def run(
         ben_files = [p for p in ben_files if p.as_posix() in bounds]
         mal_files = [p for p in mal_files if p.as_posix() in bounds]
 
-    # Slice the files to start/end at different points
-    ben_files = slice_files(
-        ben_files,
-        control_params.ben_start_idx,
-        control_params.ben_end_idx,
-        control_params.ben_start_batch,
-        control_params.ben_end_batch,
-        data_params.batch_size,
-    )
-    mal_files = slice_files(
-        mal_files,
-        control_params.mal_start_idx,
-        control_params.mal_end_idx,
-        control_params.mal_start_batch,
-        control_params.mal_end_batch,
-        data_params.batch_size,
-    )
-
     # Keep the benign and malicious data separate, so it can be placed in different directories
     ben_dataset, ben_loader = cl.get_dataset_and_loader(
         ben_files,
@@ -341,14 +323,31 @@ def run(
         sort_by_size=True,
     )
 
+    # Malicious start idx
+    if control_params.mal_start_batch is not None:
+        control_params.mal_start_idx = data_params.batch_size * control_params.mal_start_batch
+    if control_params.ben_start_idx is None:
+        control_params.ben_start_idx = 0
+    # Benign start idx
+    if control_params.ben_start_batch is not None:
+        control_params.ben_start_idx = data_params.batch_size * control_params.ben_start_batch
+    if control_params.ben_start_idx is None:
+        control_params.ben_start_idx = 0
+    # Malicious end idx
+    if control_params.mal_end_batch is not None:
+        control_params.mal_end_idx = data_params.batch_size * control_params.mal_end_batch
+    # Benign end idx
+    if control_params.ben_end_batch is not None:
+        control_params.ben_end_idx = data_params.batch_size * control_params.ben_end_batch
+
     # Conglomerate the different data structures
     data = [
-        (mal_dataset, mal_loader, mal_oh),
-        (ben_dataset, ben_loader, ben_oh),
+        (mal_dataset, mal_loader, mal_oh, control_params.mal_start_idx, control_params.mal_end_idx),
+        (ben_dataset, ben_loader, ben_oh, control_params.ben_start_idx, control_params.ben_end_idx),
     ]
 
     # Run the explanation algorithm on each dataset
-    for dataset, loader, oh in data:
+    for dataset, loader, oh, start, end in data:
         files = batch([Path(e[0]) for e in dataset.all_files], data_params.batch_size)
         gen = tqdm(
             zip(loader, files),
@@ -357,6 +356,8 @@ def run(
         )
         for i, ((inputs, targets), files) in enumerate(gen):
             try:
+                if i < start or (end is not None and i > end):
+                    continue
                 inputs = inputs.to(cfg.device)
                 targets = targets.to(cfg.device)
 
