@@ -324,26 +324,22 @@ def run(
     )
 
     # Malicious start idx
-    if control_params.mal_start_batch is not None:
-        control_params.mal_start_idx = data_params.batch_size * control_params.mal_start_batch
-    if control_params.ben_start_idx is None:
-        control_params.ben_start_idx = 0
+    if control_params.mal_start_idx is not None:
+        control_params.mal_start_batch = control_params.mal_start_batch // data_params.batch_size
     # Benign start idx
-    if control_params.ben_start_batch is not None:
-        control_params.ben_start_idx = data_params.batch_size * control_params.ben_start_batch
-    if control_params.ben_start_idx is None:
-        control_params.ben_start_idx = 0
+    if control_params.ben_start_idx is not None:
+        control_params.ben_start_batch = control_params.ben_start_batch // data_params.batch_size
     # Malicious end idx
-    if control_params.mal_end_batch is not None:
-        control_params.mal_end_idx = data_params.batch_size * control_params.mal_end_batch
+    if control_params.mal_end_idx is not None:
+        control_params.mal_end_batch = control_params.mal_end_batch // data_params.batch_size
     # Benign end idx
-    if control_params.ben_end_batch is not None:
-        control_params.ben_end_idx = data_params.batch_size * control_params.ben_end_batch
+    if control_params.ben_end_idx is not None:
+        control_params.ben_end_batch = control_params.ben_end_batch // data_params.batch_size
 
     # Conglomerate the different data structures
     data = [
-        (mal_dataset, mal_loader, mal_oh, control_params.mal_start_idx, control_params.mal_end_idx),
-        (ben_dataset, ben_loader, ben_oh, control_params.ben_start_idx, control_params.ben_end_idx),
+        (mal_dataset, mal_loader, mal_oh, control_params.mal_start_batch, control_params.mal_end_batch),
+        (ben_dataset, ben_loader, ben_oh, control_params.ben_start_batch, control_params.ben_end_batch),
     ]
 
     # Run the explanation algorithm on each dataset
@@ -356,7 +352,7 @@ def run(
         )
         for i, ((inputs, targets), files) in enumerate(gen):
             try:
-                if i < start or (end is not None and i > end):
+                if (start is not None and i < start) or (end is not None and i > end):
                     continue
                 inputs = inputs.to(cfg.device)
                 targets = targets.to(cfg.device)
