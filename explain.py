@@ -1,6 +1,9 @@
 """
 Explanation algorithms.
 
+Run and append to existing log file:
+python explain.py --config_file=config_files/explain/FeaturePermutation.ini >>logs/explain/FeaturePermutation.log 2>&1 &
+
 TODO:
     - Add a way to kickstart the explanation process from a specific:
         - Batch iteration (benign/malicious)
@@ -13,6 +16,7 @@ from argparse import ArgumentParser
 from collections import OrderedDict
 from configparser import ConfigParser
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from inspect import signature
 from itertools import chain
 from pathlib import Path
@@ -29,7 +33,7 @@ from torch import Tensor
 import classifier as cl
 import cfg
 import executable_helper
-from utils import batch, ceil_divide, exception_info
+from utils import batch, ceil_divide, exception_info, section_header
 from typing_ import ForwardFunction, Pathlike
 
 
@@ -78,10 +82,17 @@ class ControlParams:
     ben_end_batch: int = None
     mal_end_batch: int = None
     errors: str = "warn"
+    progress_bar: bool = True
+    verbose: bool = False
 
     def __post_init__(self) -> None:
         self.output_root = Path(self.output_root)
-        idx = [self.ben_start_idx, self.mal_start_idx, self.ben_end_idx, self.mal_end_idx]
+        idx = [
+            self.ben_start_idx,
+            self.mal_start_idx,
+            self.ben_end_idx,
+            self.mal_end_idx,
+        ]
         batch_ = [
             self.ben_start_batch,
             self.mal_start_batch,
@@ -123,7 +134,11 @@ class OutputHelper:
 
     @classmethod
     def from_params(
-        cls, explain_params: ExplainParams, control_params: ControlParams, *, split: str = None
+        cls,
+        explain_params: ExplainParams,
+        control_params: ControlParams,
+        *,
+        split: str = None,
     ) -> OutputHelper:
         return cls(
             control_params.output_root,
@@ -158,7 +173,7 @@ class FeatureMask:
 
     def __call__(self) -> Tensor:
         if self.mode == "all":
-            mask = self.chunk_mask(self.X[0], self.size)
+            mask = self.chunk_mask(self.X[0], self.size).unsqueeze(0)
         elif self.mode == "text":
             masks = []
             for i, (l, u, x) in enumerate(zip(self.lowers, self.uppers, self.X)):
@@ -174,10 +189,10 @@ class FeatureMask:
                 end = torch.full((x.shape[0] - u,), fill_val, dtype=torch.int64)
                 mask = torch.cat([begin, mask, end])
                 masks.append(mask)
-            mask = torch.stack(masks).to(torch.int64)
+            mask = torch.stack(masks)
         else:
             raise ValueError("Both or neither lower and upper bounds must be provided.")
-        return mask
+        return mask.to(torch.int64)
 
     @staticmethod
     def chunk_mask(x: Tensor, size: int) -> Tensor:
@@ -187,7 +202,7 @@ class FeatureMask:
         q, r = divmod(length, size)
         mask = torch.cat([torch.full((size,), i) for i in range(q)])
         mask = torch.cat([mask, torch.full((r,), q)])
-        return mask.type(torch.int64)
+        return mask.to(torch.int64)
 
 
 def explain_batch(
@@ -230,7 +245,11 @@ def explain_batch(
         and attrib_params.feature_mask_mode is not None
     ):
         kwargs["feature_mask"] = FeatureMask(
-            inputs, attrib_params.feature_mask_size, attrib_params.feature_mask_mode, lowers, uppers
+            inputs,
+            attrib_params.feature_mask_size,
+            attrib_params.feature_mask_mode,
+            lowers,
+            uppers,
         )().to(cfg.device)
     if "sliding_window_shapes" in valid and attrib_params.sliding_window_shapes_size is not None:
         kwargs["sliding_window_shapes"] = (attrib_params.sliding_window_shapes_size,)
@@ -311,6 +330,7 @@ def run(
         None,
         max_len=data_params.max_len,
         batch_size=data_params.batch_size,
+        num_workers=data_params.num_workers,
         shuffle_=False,
         sort_by_size=True,
     )
@@ -319,6 +339,7 @@ def run(
         mal_files,
         max_len=data_params.max_len,
         batch_size=data_params.batch_size,
+        num_workers=data_params.num_workers,
         shuffle_=False,
         sort_by_size=True,
     )
@@ -338,20 +359,34 @@ def run(
 
     # Conglomerate the different data structures
     data = [
-        (mal_dataset, mal_loader, mal_oh, control_params.mal_start_batch, control_params.mal_end_batch),
-        (ben_dataset, ben_loader, ben_oh, control_params.ben_start_batch, control_params.ben_end_batch),
+        (
+            mal_dataset,
+            mal_loader,
+            mal_oh,
+            control_params.mal_start_batch,
+            control_params.mal_end_batch,
+        ),
+        (
+            ben_dataset,
+            ben_loader,
+            ben_oh,
+            control_params.ben_start_batch,
+            control_params.ben_end_batch,
+        ),
     ]
 
     # Run the explanation algorithm on each dataset
     for dataset, loader, oh, start, end in data:
         files = batch([Path(e[0]) for e in dataset.all_files], data_params.batch_size)
-        gen = tqdm(
-            zip(loader, files),
-            total=ceil_divide(len(dataset), data_params.batch_size),
-            initial=0,
-        )
+        gen = zip(loader, files)
+        initial = 0
+        total = ceil_divide(len(dataset), data_params.batch_size)
+        gen = tqdm(gen, total=total, initial=initial) if control_params.progress_bar else gen
+        print(f"Starting explanations: {initial=}, {start=}, {end=}, {total=} @{datetime.now()}")
         for i, ((inputs, targets), files) in enumerate(gen):
             try:
+                if control_params.verbose:
+                    print(f"{i} / {total} = {100 * i // total}% @{datetime.now()}")
                 if (start is not None and i < start) or (end is not None and i > end):
                     continue
                 inputs = inputs.to(cfg.device)
@@ -393,7 +428,11 @@ def main(config: ConfigParser) -> None:
     p = config["EXE"]
     exe_params = executable_helper.ExeParams(p.get("text_section_bounds_file"))
     p = config["DATA"]
-    data_params = cl.DataParams(max_len=p.getint("max_len"), batch_size=p.getint("batch_size"))
+    data_params = cl.DataParams(
+        max_len=p.getint("max_len"),
+        batch_size=p.getint("batch_size"),
+        num_workers=p.getint("num_workers"),
+    )
     p = config[config.get("EXPLAIN", "alg")]
     attrib_params = AttributeParams(
         p.getint("baselines"),
@@ -402,7 +441,7 @@ def main(config: ConfigParser) -> None:
         p.get("method"),
         p.getint("n_steps"),
         p.getint("perturbations_per_eval"),
-        p.getint("sliding_window_shapes"),
+        p.getint("sliding_window_shapes_size"),
         p.getint("strides"),
         p.getint("target"),
     )
@@ -422,15 +461,19 @@ def main(config: ConfigParser) -> None:
         p.getint("ben_stop_batch"),
         p.getint("mal_stop_batch"),
         p.get("errors"),
+        p.getboolean("progress_bar"),
+        p.getboolean("verbose"),
     )
     cfg.init(p.get("device"), p.getint("seed"))
     run(model_params, data_params, exe_params, explain_params, control_params)
 
 
 if __name__ == "__main__":
+    print(section_header(f"START @{datetime.now()}"))
     parser = ArgumentParser()
     parser.add_argument("--config_file", type=str, default="config_files/explain/default.ini")
     args = parser.parse_args()
     config = ConfigParser(allow_no_value=True)
     config.read(args.config_file)
     main(config)
+    print(section_header("END @{datetime.now()}"))
