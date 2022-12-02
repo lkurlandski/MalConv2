@@ -815,7 +815,8 @@ def main(config: ConfigParser) -> None:
     p = config["DATA"]
     data_params = cl.DataParams(max_len=p.getint("max_len"), batch_size=p.getint("batch_size"))
     p = config["EXPLAIN"]
-    explain_oh = explain.OutputHelper.from_path_parent(p.get("output_path"))
+    if p.get("output_path") is not None:
+        explain_oh = explain.OutputHelper.from_path_parent(p.get("output_path"))
     mal_explain_oh = explain_oh["mal"]
     ben_explain_oh = explain_oh["ben"]
     p = config["MODIFY"]
