@@ -13,6 +13,7 @@ import typing as tp
 
 import lief
 import numpy as np
+import pandas as pd
 import pefile
 from torch import Tensor
 
@@ -388,3 +389,49 @@ if __name__ == "__main__":
                 outfile,
                 errors=errors,
             )
+
+
+# TODO: use dict of tuples instead of dict of dict
+def filter_bounds(
+    bounds: tp.Dict[str, tp.Dict[str, int]],
+    max_len: int = None,
+    dict_of_dict: bool = False,
+) -> tp.Dict[str, tp.Dict[str, int]]:
+    if dict_of_dict:
+        return {
+            k_1: {k_2: v_2 for k_2, v_2 in v_1.items()}
+            for k_1, v_1 in bounds.items()
+            if (
+                v_1["lower"] is not None
+                and v_1["upper"] is not None
+                and v_1["size"] >= v_1["upper"]
+                and v_1["upper"] > v_1["lower"]
+                and (v_1["lower"] < max_len if isinstance(max_len, int) else True)
+            )
+        }
+    return {
+        k: v
+        for k, v in bounds.items()
+        if (
+            v["lower"] is not None
+            and v["upper"] is not None
+            and v["size"] >= v["upper"]
+            and v["upper"] > v["lower"]
+            and (v["lower"] < max_len if isinstance(max_len, int) else True)
+        )
+    }
+
+
+# TODO: use dict of tuples instead of dict of dict
+def get_bounds(
+    text_section_bounds_file: Pathlike,
+    dict_of_dict: bool = False,
+) -> tp.Dict[str, tp.Dict[str, int]]:
+    d = pd.read_csv(text_section_bounds_file, index_col="file").to_dict("index")
+    d = {
+        k_1: {k_2: int(v_2) if v_2.isdigit() else None for k_2, v_2 in v_1.items()}
+        for k_1, v_1 in d.items()
+    }
+    if dict_of_dict:
+        return d
+    return {k: (v["lower"], v["upper"]) for k, v in d.items()}

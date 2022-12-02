@@ -5,7 +5,8 @@ Run and append to existing log file:
 python explain.py --config_file=config_files/explain/FeaturePermutation.ini >>logs/explain/FeaturePermutation.log 2>&1 &
 
 TODO:
-    - Remove: slice_files function
+    - Remove slice_files function
+    - Use dict of tuples instead of dict of dicts for the bounds
     - Add documentation for the valid parameters in the config files
     - Alter the output path to use the default arguments passed to attribute
     - Refactor the OutputPath to contain the benign and native splits natively?
@@ -47,6 +48,7 @@ class AttributeParams:
     Not intended as a direct interface to the attribute method of an explanation algorithm.
     Keeping the parameters in alphabetical order allows for easy access with the OutputHelper.
     """
+
     baselines: int = BASELINE
     feature_mask_mode: tp.Literal["all", ".text"] = None
     feature_mask_size: int = None
@@ -333,20 +335,6 @@ def explain_batch(
     return attribs
 
 
-def filter_bounds(bounds: tp.Dict[str, tp.Dict[str, str]], max_len: int = None):
-    return {
-        k_1: {k_2: int(v_2) for k_2, v_2 in v_1.items()}
-        for k_1, v_1 in bounds.items()
-        if (
-            v_1["lower"].isdigit()
-            and v_1["upper"].isdigit()
-            and int(v_1["size"]) >= int(v_1["upper"])
-            and int(v_1["upper"]) > int(v_1["lower"])
-            and (int(v_1["lower"]) < max_len if isinstance(max_len, int) else True)
-        )
-    }
-
-
 def slice_files(
     files: tp.List[Pathlike],
     start_idx: int = None,
@@ -394,8 +382,13 @@ def run(
 
     # Lower and upper bounds for the text sections of all the files
     if explain_params.attrib_params.feature_mask_mode == "text":
-        bounds = pd.read_csv(exe_params.text_section_bounds_file, index_col="file").to_dict("index")
-        bounds = filter_bounds(bounds, max_len=data_params.max_len)
+        # TODO: use dict of tuples instead of dict of dict
+        bounds = executable_helper.get_bounds(
+            exe_params.text_section_bounds_file, dict_of_dict=True
+        )
+        bounds = executable_helper.filter_bounds(
+            bounds, max_len=data_params.max_len, dict_of_dict=True
+        )
         ben_files = [p for p in ben_files if p.as_posix() in bounds]
         mal_files = [p for p in mal_files if p.as_posix() in bounds]
 
@@ -467,12 +460,10 @@ def run(
                 inputs = inputs.to(cfg.device)
                 targets = targets.to(cfg.device)
 
+                lowers, uppers = None, None
                 if explain_params.attrib_params.feature_mask_mode == "text":
                     lowers = [bounds[f.as_posix()]["lower"] for f in files]
                     uppers = [bounds[f.as_posix()]["upper"] for f in files]
-                else:
-                    lowers = None
-                    uppers = None
 
                 attribs = explain_batch(
                     explain_params,
@@ -497,17 +488,21 @@ def run(
                     raise e
 
 
-def main(config: ConfigParser) -> None:
+def parse_config(
+    config: ConfigParser,
+) -> tp.Tuple[
+    cl.ModelParams, executable_helper.ExeParams, cl.DataParams, ExplainParams, ControlParams
+]:
     p = config["MODEL"]
     model_params = cl.ModelParams(p.get("model_name"))
-    p = config["EXE"]
-    exe_params = executable_helper.ExeParams(p.get("text_section_bounds_file"))
     p = config["DATA"]
     data_params = cl.DataParams(
         max_len=p.getint("max_len"),
         batch_size=p.getint("batch_size"),
         num_workers=p.getint("num_workers"),
     )
+    p = config["EXE"]
+    exe_params = executable_helper.ExeParams(p.get("text_section_bounds_file"))
     p = config[config.get("EXPLAIN", "alg")]
     attrib_params = AttributeParams(
         p.getint("baselines"),
@@ -539,8 +534,12 @@ def main(config: ConfigParser) -> None:
         p.getboolean("progress_bar"),
         p.getboolean("verbose"),
     )
-    cfg.init(p.get("device"), p.getint("seed"))
-    run(model_params, data_params, exe_params, explain_params, control_params)
+    return model_params, data_params, exe_params, explain_params, control_params
+
+
+def main(config: ConfigParser) -> None:
+    cfg.init(config["CONTROL"].get("device"), config["CONTROL"].getint("seed"))
+    run(*parse_config(config))
 
 
 if __name__ == "__main__":
