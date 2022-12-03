@@ -415,7 +415,7 @@ def parse_config(
     p = config["EXE"]
     exe_params = executable_helper.ExeParams(p.get("text_section_bounds_file"))
 
-    p = config["ATTRIBS"]
+    p = config["EXPLAIN"]
     explain_config = ConfigParser(allow_no_value=True)
     explain_config.read(p.get("explain_config_file"))
     _, _, _, exp_explain_params, exp_control_params = explain.parse_config(explain_config)
@@ -427,6 +427,7 @@ def parse_config(
     ben_attribs_path = explain.OutputHelper.from_params(
         exp_explain_params, exp_control_params, split="ben"
     ).output_path
+
 
     p = config["MODIFY"]
     modify_params = ModifyParams(
