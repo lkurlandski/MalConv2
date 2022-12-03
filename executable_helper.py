@@ -429,7 +429,7 @@ def get_bounds(
 ) -> tp.Dict[str, tp.Dict[str, int]]:
     d = pd.read_csv(text_section_bounds_file, index_col="file").to_dict("index")
     d = {
-        k_1: {k_2: int(v_2) if v_2.isdigit() else None for k_2, v_2 in v_1.items()}
+        k_1: {k_2: int(v_2) if str(v_2).isdigit() else None for k_2, v_2 in v_1.items()}
         for k_1, v_1 in d.items()
     }
     if dict_of_dict:

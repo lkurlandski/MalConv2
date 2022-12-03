@@ -491,7 +491,7 @@ def run(
 def parse_config(
     config: ConfigParser,
 ) -> tp.Tuple[
-    cl.ModelParams, executable_helper.ExeParams, cl.DataParams, ExplainParams, ControlParams
+    cl.ModelParams, cl.DataParams, executable_helper.ExeParams, ExplainParams, ControlParams
 ]:
     p = config["MODEL"]
     model_params = cl.ModelParams(p.get("model_name"))

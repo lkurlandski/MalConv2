@@ -1,5 +1,11 @@
 """
 Modify malware and record the classifier's response to the modified malware.
+
+Run and append to existing log file:
+python modify_inc.py --config_file=config_files/modify_inc/0.ini >>logs/modify_inc/0.log 2>&1 &
+
+TODO:
+    -
 """
 
 from __future__ import annotations
@@ -32,69 +38,34 @@ from typing_ import ErrorMode, ExeToolkit, Pathlike
 from utils import batch, ceil_divide, exception_info, get_outfile, raise_error
 
 
-MAX_INC_SUB_BYTES = 2**24  # 2 ^ 16 = 64 KB, 2 ^ 20 = 1 MB, 2 ^ 24 = 16 MB
-BENIGN_FILES = [
-    cl.WINDOWS_TRAIN_PATH / f
-    for f in [
-        "f20a100e661a3179976ccf06ce4a773cbe8d19cd8f50f14e41c0a9e6.exe",  # 3.3748079e-06 malicious
-        "09024e62ccab97df3b535e1d65025c54d2d8a684b9e6dcebba79786d.exe",  # 0.9886742 malicious
-    ]
-] + [
-    cl.WINDOWS_TEST_PATH / f
-    for f in [
-        "05efe7acbe79a7f925c5bc763d11f9d5a1daa2055d297436d0325a1b.exe",  # 1.6685235e-06 malicious
-        "256838fe2f037b8865a49d0485c568923f561fea082aa5fa656d6b2d.exe",  # 0.043622814 malicious
-        "efe6c4f2299bdc4b89ea935c05c8ebc740937cc7ee4a3948ba552a92.exe",  # 4.975618e-05 malicious
-        "701f928760a612a1e929551ca12363394922f30c7f8181f4df5b0ec0.exe",  # 9.903999e-06 malicious
-    ]
-]
-GOOD_BENIGN_FILES = [
-    # avg full_benign_corresponding .51 & avg_flipped_corresponding .45%
-    cl.WINDOWS_TEST_PATH / "53e17b21d2ff8fa5732211eed9f74f591b9bff985e79f6ad6b85bb72.exe",
-    # avg full_benign_corresponding .61 & avg_flipped_corresponding .35%
-    cl.WINDOWS_TRAIN_PATH / "fedccb36656858a3aded2b756c7f8d2afa94236140f9defa1d51d1d7.exe",
-]
-INC_MODES = [
-    "inc_baseline",
-    "inc_random",
-    "inc_benign_corresponding",
-    "inc_benign_least",
-]
-FULL_MODES = [
-    "full_baseline",
-    "full_random",
-    "full_benign_corresponding",
-    "full_benign_least",
-]
-MULTI_FULL_MODES = ["multi_full_benign_corresponding", "multi_full_benign_least"]
-
-
 @dataclass
 class ModifyParams:
-    mal_select_mode: str
-    mal_replace_mode: str
     chunk_size: int
-    toolkit: str = "pefile"
-    ben_select_mode: str = None
-    min_text_size: int = None
-    max_text_size: int = None
+    rep_file: tp.Optional[Path]
+    rep_source_mode: str
+    rep_target_mode: str
 
     def __post_init__(self):
-        if self.inc_params is not None and self.full_params is not None:
-            raise ValueError("Cannot have both inc_params and full_params")
-        if self.inc_params is None and self.full_params is None:
-            raise ValueError("Must have either inc_params or full_params")
+        self.rep_file = Path(self.rep_file) if self.rep_file is not None else None
 
 
 @dataclass
 class ControlParams:
     output_root: Path
+    mal_attribs_path: tp.Optional[Path] = None
+    ben_attribs_path: tp.Optional[Path] = None
     start_idx: int = None
     stop_idx: int = None
-    errors: str = "raise"
+    errors: str = "warn"
+    progress_bar: bool = True
+    verbose: bool = False
 
     def __post_init__(self):
         self.output_root = Path(self.output_root)
+        if self.mal_attribs_path is not None:
+            self.mal_attribs_path = Path(self.mal_attribs_path)
+        if self.ben_attribs_path is not None:
+            self.ben_attribs_path = Path(self.ben_attribs_path)
 
 
 class OutputHelper:
@@ -103,18 +74,12 @@ class OutputHelper:
         output_root: Pathlike,
         model_name: cl.ModelName,
         chunk_size: int,
-        toolkit: str,
-        min_text_size: int,
-        max_text_size: int,
         rep_source_mode: str,
         rep_target_mode: str,
     ) -> None:
         self.output_root = Path(output_root)
         self.model_name = model_name
         self.chunk_size = chunk_size
-        self.toolkit = toolkit
-        self.min_text_size = min_text_size
-        self.max_text_size = max_text_size
         self.rep_source_mode = rep_source_mode
         self.rep_target_mode = rep_target_mode
         self.output_path = self.output_root.joinpath(*self._get_components())
@@ -126,19 +91,16 @@ class OutputHelper:
     @classmethod
     def from_params(
         cls,
+        model_params: cl.ModelParams,
         control_params: ControlParams,
         modify_params: ModifyParams,
-        model_params: cl.ModelParams,
     ) -> OutputHelper:
         return cls(
             control_params.output_root,
-            model_params.model_name,
+            model_params.name,
             modify_params.chunk_size,
-            modify_params.toolkit,
-            modify_params.min_text_size,
-            modify_params.max_text_size,
-            modify_params.ben_select_mode,
-            modify_params.mal_select_mode,
+            modify_params.rep_source_mode,
+            modify_params.rep_target_mode,
         )
 
 
@@ -199,7 +161,7 @@ def extend_tensor(
 class IncSourceBytesSelector:
     def __init__(
         self,
-        mode: str,
+        mode: tp.Literal["random", "pad", "correspond", "least"],
         chunk_size: int,
         rep_bytes: Tensor = None,
         rep_attribs: Tensor = None,
@@ -211,10 +173,10 @@ class IncSourceBytesSelector:
         self.least_idx = (
             self.sorted_chunked_tensor_indices(rep_attribs) if mode == "least" else None
         )
-        self.iteration = -1
+        self.i = -1
 
     def __call__(self, l_rep: int, u_rep: int, offset: int = None) -> Tensor:
-        self.iteration += 1
+        self.i += 1
         size = u_rep - l_rep
         if self.mode == "random":
             return self._random(size)
@@ -234,11 +196,10 @@ class IncSourceBytesSelector:
         return torch.randint(low=0, high=cl.NUM_EMBEDDINGS, size=(size,))
 
     def _correspond(self, l_rep: int, u_rep: int, offset: int) -> Tensor:
-        return self.benign_replacement[l_rep - offset : u_rep - offset]
+        return self.rep_bytes[l_rep - offset : u_rep - offset]
 
     def _least(self) -> Tensor:
-        i = self.least_idx[self.iteration]
-        return self.rep_bytes[i : i + self.chunk_size]
+        return self.rep_bytes[self.least_idx[self.i] : self.least_idx[self.i] + self.chunk_size]
 
     @staticmethod
     def sorted_chunked_tensor_indices(chunked_tensor: Tensor, chunk_size: int) -> Tensor:
@@ -271,14 +232,14 @@ class IncTargetBoundsSelector:
         elif self.mode == "ordered":
             lower_bounds = self._ordered()
         else:
-            raise ValueError(f"Invalid replace mode: {self.replace_mode}")
+            raise ValueError(f"Invalid replace mode: {self.mode}")
 
         # Add the offset to the lower bounds and add the chunk size to the upper bounds
         lower_bounds = [min(u, l + lb) for lb in lower_bounds]
         upper_bounds = [min(u, lb + self.chunk_size) for lb in lower_bounds]
 
         self.bounds = [(lb, ub) for lb, ub in zip(lower_bounds, upper_bounds)]
-        self.iteration = -1
+        self.i = -1
 
     def __iter__(self) -> IncTargetBoundsSelector:
         return self
@@ -287,9 +248,9 @@ class IncTargetBoundsSelector:
         return len(self.bounds)
 
     def __next__(self) -> tp.Tuple[int, int]:
-        self.iteration += 1
-        if self.iteration < len(self.bounds):
-            return self.bounds[self.iteration]
+        self.i += 1
+        if self.i < len(self.bounds):
+            return self.bounds[self.i]
         raise StopIteration
 
     def _random(self) -> tp.List[int]:
@@ -334,7 +295,7 @@ def inc_sub_and_eval(
         X[l_rep:u_rep] = source_replacer(l_rep, u_rep, l_text)
         batch.append(X)
         if len(batch) == batch_size:
-            c = cl.confidence_scores(model, batch).tolist()
+            c = cl.confidence_scores(model, torch.stack(batch)).tolist()
             confs.extend(c)
             batch.clear()
 
@@ -343,71 +304,110 @@ def inc_sub_and_eval(
 
 def run(
     model_params: cl.ModelParams,
+    data_params: cl.DataParams,
     exe_params: executable_helper.ExeParams,
-    explain_params: explain.ExplainParams,
-    mal_explain_oh: explain.OutputHelper,
-    ben_explain_oh: explain.OutputHelper,
     modify_params: ModifyParams,
     control_params: ControlParams,
 ):
-    oh = OutputHelper.from_params(modify_params, control_params)
+    oh = OutputHelper.from_params(model_params, control_params, modify_params)
     oh.output_path.mkdir(parents=True, exist_ok=True)
 
-    mal_files = chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
-    explained = set(p.name.strip(".pt") for p in mal_explain_oh.output_path.iterdir())
-    mal_files = [p for p in mal_files if p.name in explained]
-
     bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file)
-    model = cl.get_model(model_params.model_name)
+    model = cl.get_model(model_params.name)
+
+    mal_files = chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
+    explained = set(p.name.strip(".pt") for p in control_params.mal_attribs_path.iterdir())
+    mal_files = [p for p in mal_files if p.name in explained]
+    mal_files.sort(key=lambda p: bounds[p.as_posix()][1] - bounds[p.as_posix()][0])
 
     # Optional parameters need default value of None
     rep_bytes, rep_attribs, attribs_text = None, None, None
 
     # Get the benign replacement bytes and the benign replacement's attributions
     if modify_params.rep_source_mode in {"correspond", "least"}:
-        rep_bytes = Tensor(executable_helper.read_binary(modify_params.rep_file))
+        rep_bytes = Tensor(executable_helper.read_binary(cl.WINDOWS_PATH / modify_params.rep_file))
     if modify_params.rep_source_mode in {"least"}:
         l_text, u_text = bounds[modify_params.rep_file]
-        attribs_file = ben_explain_oh.output_path / modify_params.rep_file
+        attribs_file = control_params.ben_attribs_path / modify_params.rep_file
         rep_attribs = torch.load(attribs_file, map_location=cfg.device)[l_text:u_text]
 
-    for f in mal_files:
-        X = Tensor(executable_helper.read_binary(f))
-        l_text, u_text = bounds[f.as_posix()]
+    gen = mal_files
+    total = len(mal_files) if control_params.stop_idx is None else control_params.stop_idx
+    if control_params.progress_bar:
+        gen = tqdm(gen, total=total)
 
-        # Get attributions to identify the region of the malware to swap
-        if modify_params.rep_target_mode in {"most"}:
-            attribs_file = mal_explain_oh.output_path / f.name
-            attribs_text = torch.load(attribs_file, map_location=cfg.device)[l_text:u_text]
-            if (o := get_offset_chunk_tensor(attribs_text, explain_params.chunk_size)) != 0:
-                raise ValueError(f"attributions have nonzero chunk offset {o=}")
+    print(
+        f"Starting modification: initial={0}, "
+        f"start={control_params.start_idx}, "
+        f"stop={control_params.stop_idx}, "
+        f"@{datetime.now()}"
+    )
+    for i, f in enumerate(gen):
+        if control_params.verbose:
+            print(f"{i} / {total} = {100 * i // total}% @{datetime.now()}", flush=True)
+        if control_params.start_idx is not None and i < control_params.start_idx:
+            continue
+        if control_params.stop_idx is not None and i >= control_params.stop_idx:
+            break
 
-        # Ensure the replacements are as large as the .text section to replace
-        size = ceil_divide(u_text - l_text, explain_params.chunk_size) * explain_params.chunk_size
-        rep_bytes = extend_tensor(rep_bytes, size) if rep_bytes is not None else rep_bytes
-        rep_attribs = extend_tensor(rep_attribs, size) if rep_attribs is not None else rep_attribs
+        try:
+            # Get the full piece of malware and the bounds of its .text section
+            X = Tensor(executable_helper.read_binary(f, max_len=data_params.max_len))
+            l_text, u_text = bounds[f.as_posix()]
 
-        # Get the bytes to replace with and the regions to replace at each iteration
-        source_replacer = IncSourceBytesSelector(
-            modify_params.rep_source_mode, explain_params.chunk_size, rep_bytes, rep_attribs
-        )
-        target_bounds = IncTargetBoundsSelector(
-            modify_params.rep_target_mode, l_text, u_text, explain_params.chunk_size, attribs_text
-        )
+            # Get attributions to identify the region of the malware to swap
+            if modify_params.rep_target_mode in {"most"}:
+                attribs_file = control_params.mal_attribs_path / (f.name + ".pt")
+                attribs_text = torch.load(attribs_file, map_location=cfg.device)[l_text:u_text]
+                if (o := get_offset_chunk_tensor(attribs_text, modify_params.chunk_size)) != 0:
+                    raise ValueError(f"attributions have nonzero chunk offset {o=}")
 
-        # Compute the confidence at every iteration of the algorithm
-        confs = inc_sub_and_eval(
-            model,
-            X,
-            l_text,
-            source_replacer,
-            target_bounds,
-            control_params.batch_size,
-        )
-        np.savetxt(oh.output_path / f.name, confs, delimiter="\n")
+            # Ensure the replacements are as large as the .text section to replace
+            size = ceil_divide(u_text - l_text, modify_params.chunk_size) * modify_params.chunk_size
+            rep_bytes = extend_tensor(rep_bytes, size) if rep_bytes is not None else rep_bytes
+            rep_attribs = (
+                extend_tensor(rep_attribs, size) if rep_attribs is not None else rep_attribs
+            )
+
+            # Get the bytes to replace with and the regions to replace at each iteration
+            source_replacer = IncSourceBytesSelector(
+                modify_params.rep_source_mode, modify_params.chunk_size, rep_bytes, rep_attribs
+            )
+            target_bounds = IncTargetBoundsSelector(
+                modify_params.rep_target_mode,
+                l_text,
+                u_text,
+                modify_params.chunk_size,
+                attribs_text,
+            )
+
+            # Compute the confidence at every iteration of the algorithm
+            confs = inc_sub_and_eval(
+                model,
+                X,
+                l_text,
+                source_replacer,
+                target_bounds,
+                data_params.batch_size,
+            )
+            np.savetxt(oh.output_path / f.name, confs, delimiter="\n")
+
+        except Exception as e:
+            if control_params.errors == "ignore":
+                pass
+            else:
+                ignore = {"bounds"}
+                locals_ = {k: v for k, v in locals().items() if k not in ignore}
+                print(exception_info(e, locals_))
+            if control_params.errors == "raise":
+                raise e
 
 
-def parse_config(config: ConfigParser):
+def parse_config(
+    config: ConfigParser,
+) -> tp.Tuple[
+    cl.ModelParams, cl.DataParams, executable_helper.ExeParams, ModifyParams, ControlParams
+]:
     p = config["MODEL"]
     model_params = cl.ModelParams(p.get("model_name"))
     p = config["DATA"]
@@ -415,59 +415,46 @@ def parse_config(config: ConfigParser):
     p = config["EXE"]
     exe_params = executable_helper.ExeParams(p.get("text_section_bounds_file"))
 
+    p = config["ATTRIBS"]
+    explain_config = ConfigParser(allow_no_value=True)
+    explain_config.read(p.get("explain_config_file"))
+    _, _, _, exp_explain_params, exp_control_params = explain.parse_config(explain_config)
+    chunk_size = exp_explain_params.attrib_params.feature_mask_size
+    chunk_size = 1 if chunk_size is None else chunk_size
+    mal_attribs_path = explain.OutputHelper.from_params(
+        exp_explain_params, exp_control_params, split="mal"
+    ).output_path
+    ben_attribs_path = explain.OutputHelper.from_params(
+        exp_explain_params, exp_control_params, split="ben"
+    ).output_path
+
     p = config["MODIFY"]
     modify_params = ModifyParams(
-        p.get("mal_select_mode"),
-        p.get("mal_replace_mode"),
-        p.getint("chunk_size"),
-        p.get("toolkit"),
-        p.get("ben_select_mode"),
-        p.getint("min_text_size"),
-        p.getint("max_text_size"),
+        chunk_size,
+        p.get("rep_file"),
+        p.get("rep_source_mode"),
+        p.get("rep_target_mode"),
     )
 
     p = config["CONTROL"]
     control_params = ControlParams(
         p.get("output_root"),
+        mal_attribs_path,
+        ben_attribs_path,
         p.getint("mal_start_idx"),
         p.getint("mal_stop_idx"),
         p.get("errors"),
+        p.getboolean("progress_bar"),
+        p.getboolean("verbose"),
     )
 
-    p = config["EXPLAIN"]
-    explain_config = ConfigParser()
-    explain_config.read(p.get("config_file"))
-    (
-        exp_model_params,
-        exp_data_params,
-        exp_exe_params,
-        exp_explain_params,
-        exp_control_params,
-    ) = explain.parse_config(explain_config)
-    if model_params != exp_model_params:
-        print(f"WARNING: parameters from explanation differ:\n{model_params=}\n{exp_model_params=}")
-    if data_params != exp_data_params:
-        print(f"WARNING: parameters from explanation differ:\n{data_params=}\n{exp_data_params=}")
-    if exe_params != exp_exe_params:
-        print(f"WARNING: parameters from explanation differ:\n{exe_params=}\n{exp_exe_params=}")
-
-    mal_explain_oh = explain.OutputHelper.from_params(exp_explain_params, exp_control_params, "mal")
-    ben_explain_oh = explain.OutputHelper.from_params(exp_explain_params, exp_control_params, "ben")
-
-    return (
-        model_params,
-        exe_params,
-        data_params,
-        mal_explain_oh,
-        ben_explain_oh,
-        modify_params,
-        control_params,
-    )
+    return model_params, data_params, exe_params, modify_params, control_params
 
 
 def main(config: ConfigParser) -> None:
     cfg.init(config["CONTROL"].get("device"), config["CONTROL"].getint("seed"))
-    run(*parse_config(config))
+    configurations = parse_config(config)
+    run(*configurations)
 
 
 if __name__ == "__main__":

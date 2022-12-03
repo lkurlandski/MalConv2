@@ -1,3 +1,40 @@
+MAX_INC_SUB_BYTES = 2**24  # 2 ^ 16 = 64 KB, 2 ^ 20 = 1 MB, 2 ^ 24 = 16 MB
+BENIGN_FILES = [
+    cl.WINDOWS_TRAIN_PATH / f
+    for f in [
+        "f20a100e661a3179976ccf06ce4a773cbe8d19cd8f50f14e41c0a9e6.exe",  # 3.3748079e-06 malicious
+        "09024e62ccab97df3b535e1d65025c54d2d8a684b9e6dcebba79786d.exe",  # 0.9886742 malicious
+    ]
+] + [
+    cl.WINDOWS_TEST_PATH / f
+    for f in [
+        "05efe7acbe79a7f925c5bc763d11f9d5a1daa2055d297436d0325a1b.exe",  # 1.6685235e-06 malicious
+        "256838fe2f037b8865a49d0485c568923f561fea082aa5fa656d6b2d.exe",  # 0.043622814 malicious
+        "efe6c4f2299bdc4b89ea935c05c8ebc740937cc7ee4a3948ba552a92.exe",  # 4.975618e-05 malicious
+        "701f928760a612a1e929551ca12363394922f30c7f8181f4df5b0ec0.exe",  # 9.903999e-06 malicious
+    ]
+]
+GOOD_BENIGN_FILES = [
+    # avg full_benign_corresponding .51 & avg_flipped_corresponding .45%
+    cl.WINDOWS_TEST_PATH / "53e17b21d2ff8fa5732211eed9f74f591b9bff985e79f6ad6b85bb72.exe",
+    # avg full_benign_corresponding .61 & avg_flipped_corresponding .35%
+    cl.WINDOWS_TRAIN_PATH / "fedccb36656858a3aded2b756c7f8d2afa94236140f9defa1d51d1d7.exe",
+]
+INC_MODES = [
+    "inc_baseline",
+    "inc_random",
+    "inc_benign_corresponding",
+    "inc_benign_least",
+]
+FULL_MODES = [
+    "full_baseline",
+    "full_random",
+    "full_benign_corresponding",
+    "full_benign_least",
+]
+MULTI_FULL_MODES = ["multi_full_benign_corresponding", "multi_full_benign_least"]
+
+
 def full_benign_least_replacement(
     benign_replacement: Tensor,
     benign_attributions: Tensor,
