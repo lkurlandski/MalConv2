@@ -16,25 +16,22 @@ from datetime import datetime
 from itertools import chain
 import os  # pylint: disable=unused-import
 from pathlib import Path  # pylint: disable=unused-import
-from pprint import pformat, pprint
+from pprint import pformat, pprint  # pylint: disable=unused-import
 from random import shuffle
 import sys  # pylint: disable=unused-import
-import time
 import typing as tp
 
 import numpy as np
-import pandas as pd
 import torch
 from torch import Tensor
-from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 
 import classifier as cl
 import cfg
 import executable_helper
 import explain
-from typing_ import ErrorMode, ExeToolkit, Pathlike
-from utils import batch, ceil_divide, exception_info, get_outfile, raise_error
+from typing_ import ErrorMode, Pathlike
+from utils import ceil_divide, exception_info
 
 
 @dataclass
@@ -47,7 +44,7 @@ class ModifyParams:
     chunk_size: int = None
 
     def __post_init__(self):
-        self.rep_file = Path(self.rep_file) if self.rep_file is not None else None
+        self.rep_file = cl.WINDOWS_PATH / self.rep_file if self.rep_file is not None else None
         self.chunk_size = self.exp_explain_params.attrib_params.feature_mask_size
 
 
@@ -55,8 +52,8 @@ class ModifyParams:
 class ControlParams:
     output_root: Path
     start_idx: int = None
-    stop_idx: int = None
-    errors: str = "warn"
+    end_idx: int = None
+    errors: ErrorMode = "warn"
     progress_bar: bool = True
     verbose: bool = False
 
@@ -172,9 +169,9 @@ class IncSourceBytesSelector:
         self.chunk_size = chunk_size
         self.rep_bytes = rep_bytes
         self.rep_attribs = rep_attribs
-        self.least_idx = (
-            self.sorted_chunked_tensor_indices(rep_attribs) if mode == "least" else None
-        )
+        self.least_idx = None
+        if mode == "least":
+            self.least_idx = self.sorted_chunked_tensor_indices(rep_attribs, chunk_size)
         self.i = -1
 
     def __call__(self, l_rep: int, u_rep: int, offset: int = None) -> Tensor:
@@ -182,17 +179,17 @@ class IncSourceBytesSelector:
         size = u_rep - l_rep
         if self.mode == "random":
             return self._random(size)
-        elif self.mode == "pad":
+        if self.mode == "pad":
             return self._pad(size)
-        elif self.mode == "correspond":
+        if self.mode == "correspond":
             return self._correspond(l_rep, u_rep, offset)
-        elif self.mode == "least":
-            return self._least()
-        else:
-            raise ValueError()
+        if self.mode == "least":
+            return self._least(size)
+
+        raise ValueError(f"Invalid mode: {self.mode}")
 
     def _random(self, size) -> Tensor:
-        return torch.full((self.size,), cl.BASELINE)
+        return torch.full((size,), explain.BASELINE)
 
     def _pad(self, size) -> Tensor:
         return torch.randint(low=0, high=cl.NUM_EMBEDDINGS, size=(size,))
@@ -200,8 +197,10 @@ class IncSourceBytesSelector:
     def _correspond(self, l_rep: int, u_rep: int, offset: int) -> Tensor:
         return self.rep_bytes[l_rep - offset : u_rep - offset]
 
-    def _least(self) -> Tensor:
-        return self.rep_bytes[self.least_idx[self.i] : self.least_idx[self.i] + self.chunk_size]
+    def _least(self, size) -> Tensor:
+        l = self.least_idx[self.i]
+        u = l + min(self.chunk_size, size)
+        return self.rep_bytes[l:u]
 
     @staticmethod
     def sorted_chunked_tensor_indices(chunked_tensor: Tensor, chunk_size: int) -> Tensor:
@@ -240,7 +239,7 @@ class IncTargetBoundsSelector:
         lower_bounds = [min(u, l + lb) for lb in lower_bounds]
         upper_bounds = [min(u, lb + self.chunk_size) for lb in lower_bounds]
 
-        self.bounds = [(lb, ub) for lb, ub in zip(lower_bounds, upper_bounds)]
+        self.bounds = list(zip(lower_bounds, upper_bounds))
         self.i = -1
 
     def __iter__(self) -> IncTargetBoundsSelector:
@@ -267,7 +266,7 @@ class IncTargetBoundsSelector:
     def _most(self, attribs: Tensor, attrib_threshold: float) -> tp.List[int]:
         lower_bounds = []
         attribs = attribs.clone()
-        for i in range(self.length):
+        for _ in range(self.length):
             # Stop if the most suspicious chunk is lower than some threshold
             if (max_attr := attribs.max()) <= attrib_threshold:
                 break
@@ -296,7 +295,7 @@ def inc_sub_and_eval(
         X = X.clone()
         X[l_rep:u_rep] = source_replacer(l_rep, u_rep, l_text)
         batch.append(X)
-        if len(batch) == batch_size:
+        if len(batch) == batch_size or i + 1 == len(target_bounds):
             c = cl.confidence_scores(model, torch.stack(batch)).tolist()
             confs.extend(c)
             batch.clear()
@@ -338,21 +337,21 @@ def run(
 
     # Get the benign replacement bytes and the benign replacement's attributions
     if modify_params.rep_source_mode in {"correspond", "least"}:
-        rep_bytes = Tensor(executable_helper.read_binary(cl.WINDOWS_PATH / modify_params.rep_file))
+        rep_bytes = Tensor(executable_helper.read_binary(modify_params.rep_file))
     if modify_params.rep_source_mode in {"least"}:
-        l_text, u_text = bounds[modify_params.rep_file]
-        attribs_file = ben_attribs_path / modify_params.rep_file
+        l_text, u_text = bounds[modify_params.rep_file.as_posix()]
+        attribs_file = ben_attribs_path / (modify_params.rep_file.name + ".pt")
         rep_attribs = torch.load(attribs_file, map_location=cfg.device)[l_text:u_text]
 
     gen = mal_files
-    total = len(mal_files) if control_params.stop_idx is None else control_params.stop_idx
+    total = len(mal_files) if control_params.end_idx is None else control_params.end_idx
     if control_params.progress_bar:
         gen = tqdm(gen, total=total)
 
     print(
         f"Starting modification: initial={0}, "
         f"start={control_params.start_idx}, "
-        f"stop={control_params.stop_idx}, "
+        f"end={control_params.end_idx}, "
         f"@{datetime.now()}"
     )
     for i, f in enumerate(gen):
@@ -360,7 +359,7 @@ def run(
             print(f"{i} / {total} = {100 * i // total}% @{datetime.now()}", flush=True)
         if control_params.start_idx is not None and i < control_params.start_idx:
             continue
-        if control_params.stop_idx is not None and i >= control_params.stop_idx:
+        if control_params.end_idx is not None and i >= control_params.end_idx:
             break
 
         try:
@@ -409,7 +408,7 @@ def run(
             if control_params.errors == "ignore":
                 pass
             else:
-                ignore = {"bounds"}
+                ignore = {"bounds", "mal_files", "gen", "explained"}
                 locals_ = {k: v for k, v in locals().items() if k not in ignore}
                 print(exception_info(e, locals_))
             if control_params.errors == "raise":
@@ -445,8 +444,8 @@ def parse_config(
     p = config["CONTROL"]
     control_params = ControlParams(
         p.get("output_root"),
-        p.getint("mal_start_idx"),
-        p.getint("mal_stop_idx"),
+        p.getint("start_idx"),
+        p.getint("end_idx"),
         p.get("errors"),
         p.getboolean("progress_bar"),
         p.getboolean("verbose"),
@@ -466,6 +465,7 @@ def parse_config(
 def main(config: ConfigParser) -> None:
     cfg.init(config["CONTROL"].get("device"), config["CONTROL"].getint("seed"))
     configurations = parse_config(config)
+    print(configurations[5])
     run(*configurations)
 
 
@@ -475,4 +475,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     config = ConfigParser(allow_no_value=True)
     config.read(args.config_file)
+    print(f"{args.config_file=}")
     main(config)

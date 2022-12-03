@@ -27,7 +27,6 @@ import sys  # pylint: disable=unused-import
 import typing as tp
 
 import captum.attr as ca
-import pandas as pd
 from tqdm import tqdm
 import torch
 from torch import Tensor
@@ -525,12 +524,12 @@ def parse_config(
         p.get("output_root"),
         p.getint("ben_start_idx"),
         p.getint("mal_start_idx"),
-        p.getint("ben_stop_idx"),
-        p.getint("mal_stop_idx"),
+        p.getint("ben_end_idx"),
+        p.getint("mal_end_idx"),
         p.getint("ben_start_batch"),
         p.getint("mal_start_batch"),
-        p.getint("ben_stop_batch"),
-        p.getint("mal_stop_batch"),
+        p.getint("ben_end_batch"),
+        p.getint("mal_end_batch"),
         p.get("errors"),
         p.getboolean("progress_bar"),
         p.getboolean("verbose"),
