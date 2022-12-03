@@ -10,16 +10,15 @@ TODO:
 
 from __future__ import annotations
 from argparse import ArgumentParser
-from configparser import ConfigParser, SectionProxy
+from configparser import ConfigParser
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import chain
-import multiprocessing
-import os
-from pathlib import Path
+import os  # pylint: disable=unused-import
+from pathlib import Path  # pylint: disable=unused-import
 from pprint import pformat, pprint
 from random import shuffle
-import sys
+import sys  # pylint: disable=unused-import
 import time
 import typing as tp
 
@@ -40,20 +39,21 @@ from utils import batch, ceil_divide, exception_info, get_outfile, raise_error
 
 @dataclass
 class ModifyParams:
-    chunk_size: int
-    rep_file: tp.Optional[Path]
     rep_source_mode: str
     rep_target_mode: str
+    exp_explain_params: explain.ExplainParams
+    exp_control_params: explain.ControlParams
+    rep_file: tp.Optional[Path] = None
+    chunk_size: int = None
 
     def __post_init__(self):
         self.rep_file = Path(self.rep_file) if self.rep_file is not None else None
+        self.chunk_size = self.exp_explain_params.attrib_params.feature_mask_size
 
 
 @dataclass
 class ControlParams:
     output_root: Path
-    mal_attribs_path: tp.Optional[Path] = None
-    ben_attribs_path: tp.Optional[Path] = None
     start_idx: int = None
     stop_idx: int = None
     errors: str = "warn"
@@ -62,10 +62,6 @@ class ControlParams:
 
     def __post_init__(self):
         self.output_root = Path(self.output_root)
-        if self.mal_attribs_path is not None:
-            self.mal_attribs_path = Path(self.mal_attribs_path)
-        if self.ben_attribs_path is not None:
-            self.ben_attribs_path = Path(self.ben_attribs_path)
 
 
 class OutputHelper:
@@ -73,32 +69,38 @@ class OutputHelper:
         self,
         output_root: Pathlike,
         model_name: cl.ModelName,
-        chunk_size: int,
+        attribs_path: Path,
         rep_source_mode: str,
         rep_target_mode: str,
     ) -> None:
         self.output_root = Path(output_root)
         self.model_name = model_name
-        self.chunk_size = chunk_size
         self.rep_source_mode = rep_source_mode
         self.rep_target_mode = rep_target_mode
-        self.output_path = self.output_root.joinpath(*self._get_components())
-
-    def _get_components(self) -> tp.List[str]:
-        components = ["__".join([k, str(v)]) for k, v in list(self.__dict__.items())]
-        return components
+        self.output_path = (
+            self.output_root
+            / f"model_name__{self.model_name}"
+            / attribs_path
+            / f"rep_source_mode__{rep_source_mode}"
+            / f"rep_target_mode__{rep_target_mode}"
+        )
 
     @classmethod
     def from_params(
         cls,
         model_params: cl.ModelParams,
+        exp_explain_params: explain.ExplainParams,
+        exp_control_params: explain.ControlParams,
         control_params: ControlParams,
         modify_params: ModifyParams,
     ) -> OutputHelper:
+        attribs_path = explain.OutputHelper.from_params(
+            exp_explain_params, exp_control_params, split=""
+        ).output_path.relative_to(exp_control_params.output_root)
         return cls(
             control_params.output_root,
             model_params.name,
-            modify_params.chunk_size,
+            attribs_path,
             modify_params.rep_source_mode,
             modify_params.rep_target_mode,
         )
@@ -306,17 +308,28 @@ def run(
     model_params: cl.ModelParams,
     data_params: cl.DataParams,
     exe_params: executable_helper.ExeParams,
+    exp_explain_params: explain.ExplainParams,
+    exp_control_params: explain.ControlParams,
     modify_params: ModifyParams,
     control_params: ControlParams,
 ):
-    oh = OutputHelper.from_params(model_params, control_params, modify_params)
+    oh = OutputHelper.from_params(
+        model_params, exp_explain_params, exp_control_params, control_params, modify_params
+    )
     oh.output_path.mkdir(parents=True, exist_ok=True)
+
+    mal_attribs_path = explain.OutputHelper.from_params(
+        exp_explain_params, exp_control_params, split="mal"
+    ).output_path
+    ben_attribs_path = explain.OutputHelper.from_params(
+        exp_explain_params, exp_control_params, split="ben"
+    ).output_path
 
     bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file)
     model = cl.get_model(model_params.name)
 
     mal_files = chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
-    explained = set(p.name.strip(".pt") for p in control_params.mal_attribs_path.iterdir())
+    explained = set(p.name.strip(".pt") for p in mal_attribs_path.iterdir())
     mal_files = [p for p in mal_files if p.name in explained]
     mal_files.sort(key=lambda p: bounds[p.as_posix()][1] - bounds[p.as_posix()][0])
 
@@ -328,7 +341,7 @@ def run(
         rep_bytes = Tensor(executable_helper.read_binary(cl.WINDOWS_PATH / modify_params.rep_file))
     if modify_params.rep_source_mode in {"least"}:
         l_text, u_text = bounds[modify_params.rep_file]
-        attribs_file = control_params.ben_attribs_path / modify_params.rep_file
+        attribs_file = ben_attribs_path / modify_params.rep_file
         rep_attribs = torch.load(attribs_file, map_location=cfg.device)[l_text:u_text]
 
     gen = mal_files
@@ -357,7 +370,7 @@ def run(
 
             # Get attributions to identify the region of the malware to swap
             if modify_params.rep_target_mode in {"most"}:
-                attribs_file = control_params.mal_attribs_path / (f.name + ".pt")
+                attribs_file = mal_attribs_path / (f.name + ".pt")
                 attribs_text = torch.load(attribs_file, map_location=cfg.device)[l_text:u_text]
                 if (o := get_offset_chunk_tensor(attribs_text, modify_params.chunk_size)) != 0:
                     raise ValueError(f"attributions have nonzero chunk offset {o=}")
@@ -417,31 +430,21 @@ def parse_config(
 
     p = config["EXPLAIN"]
     explain_config = ConfigParser(allow_no_value=True)
-    explain_config.read(p.get("explain_config_file"))
+    explain_config.read(p.get("config_file"))
     _, _, _, exp_explain_params, exp_control_params = explain.parse_config(explain_config)
-    chunk_size = exp_explain_params.attrib_params.feature_mask_size
-    chunk_size = 1 if chunk_size is None else chunk_size
-    mal_attribs_path = explain.OutputHelper.from_params(
-        exp_explain_params, exp_control_params, split="mal"
-    ).output_path
-    ben_attribs_path = explain.OutputHelper.from_params(
-        exp_explain_params, exp_control_params, split="ben"
-    ).output_path
-
 
     p = config["MODIFY"]
     modify_params = ModifyParams(
-        chunk_size,
-        p.get("rep_file"),
         p.get("rep_source_mode"),
         p.get("rep_target_mode"),
+        exp_explain_params,
+        exp_control_params,
+        p.get("rep_file"),
     )
 
     p = config["CONTROL"]
     control_params = ControlParams(
         p.get("output_root"),
-        mal_attribs_path,
-        ben_attribs_path,
         p.getint("mal_start_idx"),
         p.getint("mal_stop_idx"),
         p.get("errors"),
@@ -449,7 +452,15 @@ def parse_config(
         p.getboolean("verbose"),
     )
 
-    return model_params, data_params, exe_params, modify_params, control_params
+    return (
+        model_params,
+        data_params,
+        exe_params,
+        exp_explain_params,
+        exp_control_params,
+        modify_params,
+        control_params,
+    )
 
 
 def main(config: ConfigParser) -> None:
