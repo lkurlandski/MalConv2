@@ -2,7 +2,7 @@
 Explanation algorithms.
 
 Run and append to existing log file:
-python explain.py --config_file=config_files/explain/FeaturePermutation.ini >>logs/explain/FeaturePermutation.log 2>&1 &
+python explain.py --config_file=config_files/explain/FILE.ini >>logs/explain/FILE.log 2>&1 &
 
 TODO:
     - Remove slice_files function
@@ -414,16 +414,16 @@ def run(
 
     # Malicious start idx
     if control_params.mal_start_idx is not None:
-        control_params.mal_start_batch = control_params.mal_start_batch // data_params.batch_size
+        control_params.mal_start_batch = control_params.mal_start_idx // data_params.batch_size
     # Benign start idx
     if control_params.ben_start_idx is not None:
-        control_params.ben_start_batch = control_params.ben_start_batch // data_params.batch_size
+        control_params.ben_start_batch = control_params.ben_start_idx // data_params.batch_size
     # Malicious end idx
     if control_params.mal_end_idx is not None:
-        control_params.mal_end_batch = control_params.mal_end_batch // data_params.batch_size
+        control_params.mal_end_batch = control_params.mal_end_idx // data_params.batch_size
     # Benign end idx
     if control_params.ben_end_idx is not None:
-        control_params.ben_end_batch = control_params.ben_end_batch // data_params.batch_size
+        control_params.ben_end_batch = control_params.ben_end_idx // data_params.batch_size
 
     # Conglomerate the different data structures
     data = [
@@ -454,7 +454,7 @@ def run(
         for i, ((inputs, targets), files) in enumerate(gen):
             try:
                 if control_params.verbose:
-                    print(f"{i} / {total} = {100 * i // total}% @{datetime.now()}")
+                    print(f"{i} / {total} = {100 * i // total}% @{datetime.now()}", flush=True)
                 if (start is not None and i < start) or (end is not None and i > end):
                     continue
                 inputs = inputs.to(cfg.device)

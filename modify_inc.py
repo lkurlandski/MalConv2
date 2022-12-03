@@ -2,7 +2,7 @@
 Modify malware and record the classifier's response to the modified malware.
 
 Run and append to existing log file:
-python modify_inc.py --config_file=config_files/modify_inc/0.ini >>logs/modify_inc/0.log 2>&1 &
+python modify_inc.py --config_file=config_files/modify_inc/FILE.ini >>logs/modify_inc/FILE.log 2>&1 &
 
 TODO:
     -
@@ -31,7 +31,7 @@ import cfg
 import executable_helper
 import explain
 from typing_ import ErrorMode, Pathlike
-from utils import ceil_divide, exception_info
+from utils import ceil_divide, exception_info, section_header
 
 
 @dataclass
@@ -465,11 +465,11 @@ def parse_config(
 def main(config: ConfigParser) -> None:
     cfg.init(config["CONTROL"].get("device"), config["CONTROL"].getint("seed"))
     configurations = parse_config(config)
-    print(configurations[5])
     run(*configurations)
 
 
 if __name__ == "__main__":
+    print(section_header(f"START @{datetime.now()}"))
     parser = ArgumentParser()
     parser.add_argument("--config_file", type=str, default="config_files/modify_inc/default.ini")
     args = parser.parse_args()
@@ -477,3 +477,4 @@ if __name__ == "__main__":
     config.read(args.config_file)
     print(f"{args.config_file=}")
     main(config)
+    print(section_header(f"END @{datetime.now()}"))
