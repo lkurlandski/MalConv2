@@ -2,7 +2,7 @@
 Modify malware and record the classifier's response to the modified malware.
 
 Run and append to existing log file:
-python modify_inc.py --config_file=config_files/modify_inc/FILE.ini >>logs/modify_inc/FILE.log 2>&1 &
+python modify_inc.py --config_file=CONFIG_FILE >>LOG_FILE 2>&1 &
 
 TODO:
     -
@@ -32,6 +32,10 @@ import executable_helper
 import explain
 from typing_ import ErrorMode, Pathlike
 from utils import ceil_divide, exception_info, section_header
+
+
+REP_SOURCE_MODES = ["correspond", "least", "pad", "random"]
+REP_TARGET_MODES = ["most", "ordered", "random"]
 
 
 @dataclass
@@ -307,23 +311,12 @@ def run(
     model_params: cl.ModelParams,
     data_params: cl.DataParams,
     exe_params: executable_helper.ExeParams,
-    exp_explain_params: explain.ExplainParams,
-    exp_control_params: explain.ControlParams,
     modify_params: ModifyParams,
     control_params: ControlParams,
+    output_path: Path,
+    mal_attribs_path: Path,
+    ben_attribs_path: Path,
 ):
-    oh = OutputHelper.from_params(
-        model_params, exp_explain_params, exp_control_params, control_params, modify_params
-    )
-    oh.output_path.mkdir(parents=True, exist_ok=True)
-
-    mal_attribs_path = explain.OutputHelper.from_params(
-        exp_explain_params, exp_control_params, split="mal"
-    ).output_path
-    ben_attribs_path = explain.OutputHelper.from_params(
-        exp_explain_params, exp_control_params, split="ben"
-    ).output_path
-
     bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file)
     model = cl.get_model(model_params.name)
 
@@ -402,9 +395,9 @@ def run(
                 target_bounds,
                 data_params.batch_size,
             )
-            np.savetxt(oh.output_path / f.name, confs, delimiter="\n")
+            np.savetxt(output_path / f.name, confs, delimiter="\n")
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             if control_params.errors == "ignore":
                 pass
             else:
@@ -418,7 +411,14 @@ def run(
 def parse_config(
     config: ConfigParser,
 ) -> tp.Tuple[
-    cl.ModelParams, cl.DataParams, executable_helper.ExeParams, ModifyParams, ControlParams
+    cl.ModelParams,
+    cl.DataParams,
+    executable_helper.ExeParams,
+    ModifyParams,
+    ControlParams,
+    Path,
+    Path,
+    Path,
 ]:
     p = config["MODEL"]
     model_params = cl.ModelParams(p.get("model_name"))
@@ -451,20 +451,33 @@ def parse_config(
         p.getboolean("verbose"),
     )
 
+    modify_output_path = OutputHelper.from_params(
+        model_params, exp_explain_params, exp_control_params, control_params, modify_params
+    ).output_path
+    mal_attribs_path = explain.OutputHelper.from_params(
+        exp_explain_params, exp_control_params, split="mal"
+    ).output_path
+    ben_attribs_path = explain.OutputHelper.from_params(
+        exp_explain_params, exp_control_params, split="ben"
+    ).output_path
+
     return (
         model_params,
         data_params,
         exe_params,
-        exp_explain_params,
-        exp_control_params,
         modify_params,
         control_params,
+        modify_output_path,
+        mal_attribs_path,
+        ben_attribs_path,
     )
 
 
 def main(config: ConfigParser) -> None:
     cfg.init(config["CONTROL"].get("device"), config["CONTROL"].getint("seed"))
     configurations = parse_config(config)
+    modify_output_path = configurations[5]
+    modify_output_path.mkdir(parents=True, exist_ok=True)
     run(*configurations)
 
 
