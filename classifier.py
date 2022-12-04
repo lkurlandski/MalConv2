@@ -55,7 +55,7 @@ class ModelParams:
 class DataParams:
     max_len: int
     batch_size: int
-    num_workers: tp.Optional[int] = None  # Use 1 when debugging
+    num_workers: tp.Optional[int] = None  # Use 0 when debugging
     good: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]] = None
     bad: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]] = None
 
@@ -115,9 +115,8 @@ def get_dataset_and_loader(
     if shuffle_ and sort_by_size:
         raise ValueError("Specifying both shuffle_ and sort_by_size does not make sense.")
     dataset = BinaryDataset(good, bad, sort_by_size, max_len, shuffle_)
-    num_workers = (
-        max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1) if num_workers is None else num_workers
-    )
+    if num_workers is None:
+        num_workers = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1)
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
