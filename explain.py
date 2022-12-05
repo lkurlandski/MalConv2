@@ -2,7 +2,7 @@
 Explanation algorithms.
 
 Run and append to existing log file:
-python explain.py --config_file=config_files/explain/FILE.ini >>logs/explain/FILE.log 2>&1 &
+python explain.py --config_file=CONFIG_FILE >>LOG_FILE 2>&1 &
 
 TODO:
     - Remove slice_files function
