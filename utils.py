@@ -130,3 +130,15 @@ def exception_info(e: Exception, locals_: tp.Dict[str, tp.Any]) -> str:
 
 def raise_error(e: Exception, pre: str = "", post: str = "") -> None:
     raise type(e)(pre + e.message + post)
+
+
+def str_type_cast(iterable: tp.Iterable[str]) -> tp.Generator[tp.Any, None, None]:
+    for i in iterable:
+        if i == "None":
+            yield None
+        elif i == "True":
+            yield True
+        elif i == "False":
+            yield False
+        else:
+            yield i

@@ -2,13 +2,14 @@
 Explanation algorithms.
 
 Run and append to existing log file:
-python explain.py --config_file=config_files/explain/FeaturePermutation.ini >>logs/explain/FeaturePermutation.log 2>&1 &
+python explain.py --config_file=CONFIG_FILE >>LOG_FILE 2>&1 &
 
 TODO:
-    - Add a way to kickstart the explanation process from a specific:
-        - Batch iteration (benign/malicious)
-        - File index (benign/malicious)
-        - File name (class agnostic)
+    - Remove slice_files function
+    - Use dict of tuples instead of dict of dicts for the bounds
+    - Add documentation for the valid parameters in the config files
+    - Alter the output path to use the default arguments passed to attribute
+    - Refactor the OutputPath to contain the benign and native splits natively?
 """
 
 from __future__ import annotations
@@ -19,13 +20,13 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from inspect import signature
 from itertools import chain
-from pathlib import Path
+import os  # pylint: disable=unused-import
+from pathlib import Path  # pylint: disable=unused-import
 from pprint import pformat, pprint  # pylint: disable=unused-import
 import sys  # pylint: disable=unused-import
 import typing as tp
 
 import captum.attr as ca
-import pandas as pd
 from tqdm import tqdm
 import torch
 from torch import Tensor
@@ -33,7 +34,7 @@ from torch import Tensor
 import classifier as cl
 import cfg
 import executable_helper
-from utils import batch, ceil_divide, exception_info, section_header
+from utils import batch, ceil_divide, exception_info, section_header, str_type_cast
 from typing_ import ForwardFunction, Pathlike
 
 
@@ -41,9 +42,13 @@ BASELINE = cl.PAD_VALUE
 TARGET = 1
 
 
-# Not intended as a direct interface to the attribute method of an explanation algorithm.
 @dataclass
 class AttributeParams:
+    """
+    Not intended as a direct interface to the attribute method of an explanation algorithm.
+    Keeping the parameters in alphabetical order allows for easy access with the OutputHelper.
+    """
+
     baselines: int = BASELINE
     feature_mask_mode: tp.Literal["all", ".text"] = None
     feature_mask_size: int = None
@@ -60,6 +65,52 @@ class AttributeParams:
 
     def __dict__(self) -> OrderedDict:
         return OrderedDict((k, v) for k, v in sorted(self.__dict__))
+
+    def cast_types(self) -> AttributeParams:
+        try:
+            self.baselines = int(self.baselines)
+        except ValueError:
+            self.baselines = None
+
+        self.feature_mask_mode = str(self.feature_mask_mode)
+        if self.feature_mask_mode == "None":
+            self.feature_mask_mode = None
+
+        try:
+            self.feature_mask_size = int(self.feature_mask_size)
+        except ValueError:
+            self.feature_mask_size = None
+
+        self.method = str(self.method)
+        if self.method == "None":
+            self.method = None
+
+        try:
+            self.n_steps = int(self.n_steps)
+        except ValueError:
+            self.n_steps = None
+
+        try:
+            self.perturbations_per_eval = int(self.perturbations_per_eval)
+        except ValueError:
+            self.perturbations_per_eval = None
+
+        try:
+            self.sliding_window_shapes_size = int(self.sliding_window_shapes_size)
+        except ValueError:
+            self.sliding_window_shapes_size = None
+
+        try:
+            self.strides = int(self.strides)
+        except ValueError:
+            self.strides = None
+
+        try:
+            self.target = int(self.target)
+        except ValueError:
+            self.target = None
+
+        return self
 
 
 @dataclass
@@ -113,7 +164,7 @@ class OutputHelper:
         alg: str,
         attrib_params: AttributeParams,
         *,
-        split: str = None,
+        split: str = "all",
     ) -> None:
         self.output_root = Path(output_root)
         self.softmax = softmax
@@ -128,8 +179,7 @@ class OutputHelper:
         components = list(self.dict.items())
         components += list(asdict(self.attrib_params).items())
         components = ["__".join([k, str(v)]) for k, v in components]
-        if self.split is not None:
-            components.append(self.split)
+        components.append(self.split)
         return components
 
     @classmethod
@@ -148,6 +198,33 @@ class OutputHelper:
             explain_params.attrib_params,
             split=split,
         )
+
+    @classmethod
+    def from_path(cls, output_path: Pathlike) -> OutputHelper:
+        output_path = Path(output_path)
+        split = output_path.parts[-1]
+        l_1 = len(inspect.getmembers(AttributeParams)[0][1])
+        args = output_path.parts[-(l_1 + 1) : -1]
+        args = [a.split("__")[1] for a in args]
+        attrib_params = AttributeParams(*tuple(reversed(args))).cast_types()
+        l_2 = len(inspect.signature(cls.__init__).parameters) - 4
+        output_root = Path().joinpath(*output_path.parts[: -(l_1 + l_2 + 1)])
+        args = output_path.parts[-(l_1 + l_2 + 1) : -(l_1 + 1)]
+        args = [a.split("__")[1] for a in args]
+        args = list(str_type_cast(args))
+        full_args = [output_root] + args + [attrib_params]
+        return cls(*full_args, split=split)
+
+    @staticmethod
+    def from_path_parent(output_path_parent: Pathlike) -> tp.Dict[str, OutputHelper]:
+        output_path = Path(output_path_parent)
+        splits = [p.name for p in output_path.iterdir() if p.is_dir()]
+        splits = splits if splits else ["all"]
+        output_helpers = {}
+        for split in splits:
+            oh = OutputHelper.from_path(output_path / split)
+            output_helpers[split] = oh
+        return output_helpers
 
 
 class FeatureMask:
@@ -258,20 +335,6 @@ def explain_batch(
     return attribs
 
 
-def filter_bounds(bounds: tp.Dict[str, tp.Dict[str, str]], max_len: int = None):
-    return {
-        k_1: {k_2: int(v_2) for k_2, v_2 in v_1.items()}
-        for k_1, v_1 in bounds.items()
-        if (
-            v_1["lower"].isdigit()
-            and v_1["upper"].isdigit()
-            and int(v_1["size"]) >= int(v_1["upper"])
-            and int(v_1["upper"]) > int(v_1["lower"])
-            and (int(v_1["lower"]) < max_len if isinstance(max_len, int) else True)
-        )
-    }
-
-
 def slice_files(
     files: tp.List[Pathlike],
     start_idx: int = None,
@@ -319,8 +382,13 @@ def run(
 
     # Lower and upper bounds for the text sections of all the files
     if explain_params.attrib_params.feature_mask_mode == "text":
-        bounds = pd.read_csv(exe_params.text_section_bounds_file, index_col="file").to_dict("index")
-        bounds = filter_bounds(bounds, max_len=data_params.max_len)
+        # TODO: use dict of tuples instead of dict of dict
+        bounds = executable_helper.get_bounds(
+            exe_params.text_section_bounds_file, dict_of_dict=True
+        )
+        bounds = executable_helper.filter_bounds(
+            bounds, max_len=data_params.max_len, dict_of_dict=True
+        )
         ben_files = [p for p in ben_files if p.as_posix() in bounds]
         mal_files = [p for p in mal_files if p.as_posix() in bounds]
 
@@ -346,16 +414,16 @@ def run(
 
     # Malicious start idx
     if control_params.mal_start_idx is not None:
-        control_params.mal_start_batch = control_params.mal_start_batch // data_params.batch_size
+        control_params.mal_start_batch = control_params.mal_start_idx // data_params.batch_size
     # Benign start idx
     if control_params.ben_start_idx is not None:
-        control_params.ben_start_batch = control_params.ben_start_batch // data_params.batch_size
+        control_params.ben_start_batch = control_params.ben_start_idx // data_params.batch_size
     # Malicious end idx
     if control_params.mal_end_idx is not None:
-        control_params.mal_end_batch = control_params.mal_end_batch // data_params.batch_size
+        control_params.mal_end_batch = control_params.mal_end_idx // data_params.batch_size
     # Benign end idx
     if control_params.ben_end_idx is not None:
-        control_params.ben_end_batch = control_params.ben_end_batch // data_params.batch_size
+        control_params.ben_end_batch = control_params.ben_end_idx // data_params.batch_size
 
     # Conglomerate the different data structures
     data = [
@@ -386,18 +454,16 @@ def run(
         for i, ((inputs, targets), files) in enumerate(gen):
             try:
                 if control_params.verbose:
-                    print(f"{i} / {total} = {100 * i // total}% @{datetime.now()}")
+                    print(f"{i} / {total} = {100 * i // total}% @{datetime.now()}", flush=True)
                 if (start is not None and i < start) or (end is not None and i > end):
                     continue
                 inputs = inputs.to(cfg.device)
                 targets = targets.to(cfg.device)
 
+                lowers, uppers = None, None
                 if explain_params.attrib_params.feature_mask_mode == "text":
                     lowers = [bounds[f.as_posix()]["lower"] for f in files]
                     uppers = [bounds[f.as_posix()]["upper"] for f in files]
-                else:
-                    lowers = None
-                    uppers = None
 
                 attribs = explain_batch(
                     explain_params,
@@ -422,17 +488,21 @@ def run(
                     raise e
 
 
-def main(config: ConfigParser) -> None:
+def parse_config(
+    config: ConfigParser,
+) -> tp.Tuple[
+    cl.ModelParams, cl.DataParams, executable_helper.ExeParams, ExplainParams, ControlParams
+]:
     p = config["MODEL"]
     model_params = cl.ModelParams(p.get("model_name"))
-    p = config["EXE"]
-    exe_params = executable_helper.ExeParams(p.get("text_section_bounds_file"))
     p = config["DATA"]
     data_params = cl.DataParams(
         max_len=p.getint("max_len"),
         batch_size=p.getint("batch_size"),
         num_workers=p.getint("num_workers"),
     )
+    p = config["EXE"]
+    exe_params = executable_helper.ExeParams(p.get("text_section_bounds_file"))
     p = config[config.get("EXPLAIN", "alg")]
     attrib_params = AttributeParams(
         p.getint("baselines"),
@@ -454,18 +524,22 @@ def main(config: ConfigParser) -> None:
         p.get("output_root"),
         p.getint("ben_start_idx"),
         p.getint("mal_start_idx"),
-        p.getint("ben_stop_idx"),
-        p.getint("mal_stop_idx"),
+        p.getint("ben_end_idx"),
+        p.getint("mal_end_idx"),
         p.getint("ben_start_batch"),
         p.getint("mal_start_batch"),
-        p.getint("ben_stop_batch"),
-        p.getint("mal_stop_batch"),
+        p.getint("ben_end_batch"),
+        p.getint("mal_end_batch"),
         p.get("errors"),
         p.getboolean("progress_bar"),
         p.getboolean("verbose"),
     )
-    cfg.init(p.get("device"), p.getint("seed"))
-    run(model_params, data_params, exe_params, explain_params, control_params)
+    return model_params, data_params, exe_params, explain_params, control_params
+
+
+def main(config: ConfigParser) -> None:
+    cfg.init(config["CONTROL"].get("device"), config["CONTROL"].getint("seed"))
+    run(*parse_config(config))
 
 
 if __name__ == "__main__":
