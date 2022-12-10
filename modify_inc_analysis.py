@@ -233,6 +233,8 @@ def save_plotters(output_dir: Path, plotters: tp.Dict[str, tp.Dict[str, Plotter]
 
 def run(output_root: Path, chunk_size: int) -> None:
 
+    print(f"Working on experiment located in {output_root=}")
+
     print(f"Holding source mode constant. Comparing {REP_TARGET_MODES=}")
     for s_m in REP_SOURCE_MODES:
         paths = [

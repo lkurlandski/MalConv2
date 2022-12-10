@@ -2,10 +2,9 @@
 Explanation algorithms.
 
 Run and append to existing log file:
-python explain.py --config_file=CONFIG_FILE >>LOG_FILE 2>&1 &
+python explain.py --run --analyze --config_file=CONFIG_FILE >>LOG_FILE 2>&1 &
 
 TODO:
-    - Remove slice_files function
     - Use dict of tuples instead of dict of dicts for the bounds
     - Add documentation for the valid parameters in the config files
     - Alter the output path to use the default arguments passed to attribute
@@ -34,8 +33,8 @@ from torch import Tensor
 import classifier as cl
 import cfg
 import executable_helper
-from utils import batch, ceil_divide, exception_info, section_header, str_type_cast
 from typing_ import ForwardFunction, Pathlike
+from utils import batch, ceil_divide, exception_info, get_offset_chunk_tensor, section_header
 
 
 BASELINE = cl.PAD_VALUE
@@ -173,7 +172,10 @@ class OutputHelper:
         self.attrib_params = attrib_params
         self.split = split
         self.dict = {"softmax": self.softmax, "layer": self.layer, "alg": self.alg}
-        self.output_path = self.output_root.joinpath(*self._get_components())
+        self.base_path = self.output_root.joinpath(*self._get_components())
+        self.output_path = self.base_path / "output"
+        self.analysis_path = self.base_path / "analysis"
+        self.summary_file = self.analysis_path / "summary.csv"
 
     def _get_components(self) -> tp.List[str]:
         components = list(self.dict.items())
@@ -198,33 +200,6 @@ class OutputHelper:
             explain_params.attrib_params,
             split=split,
         )
-
-    @classmethod
-    def from_path(cls, output_path: Pathlike) -> OutputHelper:
-        output_path = Path(output_path)
-        split = output_path.parts[-1]
-        l_1 = len(inspect.getmembers(AttributeParams)[0][1])
-        args = output_path.parts[-(l_1 + 1) : -1]
-        args = [a.split("__")[1] for a in args]
-        attrib_params = AttributeParams(*tuple(reversed(args))).cast_types()
-        l_2 = len(inspect.signature(cls.__init__).parameters) - 4
-        output_root = Path().joinpath(*output_path.parts[: -(l_1 + l_2 + 1)])
-        args = output_path.parts[-(l_1 + l_2 + 1) : -(l_1 + 1)]
-        args = [a.split("__")[1] for a in args]
-        args = list(str_type_cast(args))
-        full_args = [output_root] + args + [attrib_params]
-        return cls(*full_args, split=split)
-
-    @staticmethod
-    def from_path_parent(output_path_parent: Pathlike) -> tp.Dict[str, OutputHelper]:
-        output_path = Path(output_path_parent)
-        splits = [p.name for p in output_path.iterdir() if p.is_dir()]
-        splits = splits if splits else ["all"]
-        output_helpers = {}
-        for split in splits:
-            oh = OutputHelper.from_path(output_path / split)
-            output_helpers[split] = oh
-        return output_helpers
 
 
 class FeatureMask:
@@ -333,29 +308,6 @@ def explain_batch(
 
     attribs = alg.attribute(inputs, **kwargs)
     return attribs
-
-
-def slice_files(
-    files: tp.List[Pathlike],
-    start_idx: int = None,
-    end_idx: int = None,
-    start_batch: int = None,
-    end_batch: int = None,
-    batch_size: int = None,
-) -> tp.List[Pathlike]:
-    if isinstance(start_idx, int):
-        start = start_idx
-    elif isinstance(start_batch, int):
-        start = start_batch * batch_size
-    else:
-        start = None
-    if isinstance(end_idx, int):
-        end = end_idx
-    elif isinstance(end_batch, int):
-        end = end_batch * batch_size
-    else:
-        end = None
-    return files[start:end]
 
 
 def run(
@@ -488,6 +440,67 @@ def run(
                     raise e
 
 
+####################################################################################################
+
+
+def analyze(
+    exe_params: executable_helper.ExeParams,
+    explain_params: ExplainParams,
+    control_params: ControlParams,
+) -> None:
+    chunk_size = explain_params.attrib_params.feature_mask_size
+    assert isinstance(chunk_size, int), "Fixed-size chunk attribution method required."
+
+    ben_oh = OutputHelper.from_params(explain_params, control_params, split="ben")
+    mal_oh = OutputHelper.from_params(explain_params, control_params, split="mal")
+
+    explained = set(
+        p.name.strip(".pt")
+        for p in chain(ben_oh.output_path.iterdir(), mal_oh.output_path.iterdir())
+    )
+    bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file)
+
+    ben_files = [
+        p
+        for p in chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())
+        if p.name in explained
+    ]
+    mal_files = [
+        p
+        for p in chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
+        if p.name in explained
+    ]
+
+    data = [
+        (ben_files, ben_oh.output_path, ben_oh.summary_file),
+        (mal_files, mal_oh.output_path, mal_oh.summary_file),
+    ]
+
+    for files, attribs_path, summary_file in data:
+        with open(summary_file, "a") as handle:
+            handle.write("file,offset,attribution\n")
+
+        for f in tqdm(files):
+            l_text, u_text = bounds[f.as_posix()]
+            attribs_text = torch.load(attribs_path / (f.name + ".pt"), map_location=cfg.device)[
+                l_text:u_text
+            ]
+
+            if (o := get_offset_chunk_tensor(attribs_text, chunk_size)) != 0:
+                print(f"WARNING: attributions have nonzero chunk offset {o=}")
+                print(f"Skipping {f.as_posix()}")
+
+            chunk_offsets = [o for o in range(0, len(attribs_text), chunk_size)]
+            chunk_attribs = attribs_text[chunk_offsets]
+            with open(summary_file, "a") as handle:
+                handle.writelines(
+                    [
+                        f"{f.as_posix()},{l_text + i * chunk_size},{a.item()}\n"
+                        for i, a in enumerate(chunk_attribs)
+                    ]
+                )
+
+
 def parse_config(
     config: ConfigParser,
 ) -> tp.Tuple[
@@ -537,17 +550,28 @@ def parse_config(
     return model_params, data_params, exe_params, explain_params, control_params
 
 
-def main(config: ConfigParser) -> None:
+def main(config: ConfigParser, run_: bool, analyze_: bool) -> None:
     cfg.init(config["CONTROL"].get("device"), config["CONTROL"].getint("seed"))
-    run(*parse_config(config))
+    configurations = parse_config(config)
+    model_params = configurations[0]
+    data_params = configurations[1]
+    exe_params = configurations[2]
+    explain_params = configurations[3]
+    control_params = configurations[4]
+    if run_:
+        run(model_params, data_params, exe_params, explain_params, control_params)
+    if analyze_:
+        analyze(exe_params, explain_params, control_params)
 
 
 if __name__ == "__main__":
     print(section_header(f"START @{datetime.now()}"))
     parser = ArgumentParser()
     parser.add_argument("--config_file", type=str, default="config_files/explain/default.ini")
+    parser.add_argument("--run", action="store_true", default=False)
+    parser.add_argument("--analyze", action="store_true", default=False)
     args = parser.parse_args()
     config = ConfigParser(allow_no_value=True)
     config.read(args.config_file)
-    main(config)
+    main(config, args.run, args.analyze)
     print(section_header("END @{datetime.now()}"))

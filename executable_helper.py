@@ -392,6 +392,7 @@ if __name__ == "__main__":
 
 
 # TODO: use dict of tuples instead of dict of dict
+# FIXME: buggy
 def filter_bounds(
     bounds: tp.Dict[str, tp.Dict[str, int]],
     max_len: int = None,
@@ -423,6 +424,7 @@ def filter_bounds(
 
 
 # TODO: use dict of tuples instead of dict of dict
+# FIXME: buggy
 def get_bounds(
     text_section_bounds_file: Pathlike,
     dict_of_dict: bool = False,

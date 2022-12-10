@@ -31,7 +31,7 @@ import cfg
 import executable_helper
 import explain
 from typing_ import ErrorMode, Pathlike
-from utils import ceil_divide, exception_info, section_header
+from utils import ceil_divide, exception_info, get_offset_chunk_tensor, section_header
 
 
 REP_SOURCE_MODES = ["correspond", "least", "pad", "random"]
@@ -105,14 +105,6 @@ class OutputHelper:
             modify_params.rep_source_mode,
             modify_params.rep_target_mode,
         )
-
-
-def get_offset_chunk_tensor(chunked_tensor: Tensor, chunk_size: int) -> int:
-    first = chunked_tensor[0]
-    for i in range(min(chunk_size, chunked_tensor.shape[0])):
-        if chunked_tensor[i] != first:
-            return i
-    return 0
 
 
 def get_least_suspicious_bounds(

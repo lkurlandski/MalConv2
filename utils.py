@@ -8,14 +8,18 @@ from pprint import pformat
 import traceback
 import typing as tp
 
+from torch import Tensor
 
 Pathlike = tp.Union[str, Path]
 
 
 def section_header(name: str, start_with_newline: bool = True, underline_length: int = 88) -> None:
     s = "\n" if start_with_newline else ""
-    s += " " * int(((underline_length - len(name)) / 2))
-    s += f"{name}\n{'-' * underline_length}"
+    s += "-" * underline_length + "\n"
+    s += " " + "-" * int(((underline_length - len(name)) // 2)) + " "
+    s += f"{name}"
+    s += "-" * int(((underline_length - len(name)) / 2)) + "\n"
+    s += "-" * underline_length
     return s
 
 
@@ -142,3 +146,11 @@ def str_type_cast(iterable: tp.Iterable[str]) -> tp.Generator[tp.Any, None, None
             yield False
         else:
             yield i
+
+
+def get_offset_chunk_tensor(chunked_tensor: Tensor, chunk_size: int) -> int:
+    first = chunked_tensor[0]
+    for i in range(min(chunk_size, chunked_tensor.shape[0])):
+        if chunked_tensor[i] != first:
+            return i
+    return 0
