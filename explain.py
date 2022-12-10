@@ -574,4 +574,4 @@ if __name__ == "__main__":
     config = ConfigParser(allow_no_value=True)
     config.read(args.config_file)
     main(config, args.run, args.analyze)
-    print(section_header("END @{datetime.now()}"))
+    print(section_header(f"END @{datetime.now()}"))
