@@ -452,23 +452,26 @@ def analyze(
     assert isinstance(chunk_size, int), "Fixed-size chunk attribution method required."
 
     ben_oh = OutputHelper.from_params(explain_params, control_params, split="ben")
+    ben_oh.analysis_path.mkdir(exist_ok=True)
     mal_oh = OutputHelper.from_params(explain_params, control_params, split="mal")
+    mal_oh.analysis_path.mkdir(exist_ok=True)
 
-    explained = set(
-        p.name.strip(".pt")
-        for p in chain(ben_oh.output_path.iterdir(), mal_oh.output_path.iterdir())
-    )
     bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file)
+    bounds = executable_helper.filter_bounds(bounds)
+    include = set(Path(p).name for p in bounds.keys()).intersection(
+        set(p.name.strip(".pt") for p in ben_oh.output_path.iterdir())
+        | set(p.name.strip(".pt") for p in mal_oh.output_path.iterdir())
+    )
 
     ben_files = [
         p
         for p in chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())
-        if p.name in explained
+        if p.name in include
     ]
     mal_files = [
         p
         for p in chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
-        if p.name in explained
+        if p.name in include
     ]
 
     data = [
@@ -477,7 +480,7 @@ def analyze(
     ]
 
     for files, attribs_path, summary_file in data:
-        with open(summary_file, "a") as handle:
+        with open(summary_file, "w") as handle:
             handle.write("file,offset,attribution\n")
 
         for f in tqdm(files):
@@ -485,6 +488,11 @@ def analyze(
             attribs_text = torch.load(attribs_path / (f.name + ".pt"), map_location=cfg.device)[
                 l_text:u_text
             ]
+
+            # TODO: determine why this happens...
+            if attribs_text.shape[0] == 0:
+                print(f"WARNING: skipping empty text attributions: {f.as_posix()}")
+                continue
 
             if (o := get_offset_chunk_tensor(attribs_text, chunk_size)) != 0:
                 print(f"WARNING: attributions have nonzero chunk offset {o=}")

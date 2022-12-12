@@ -391,8 +391,8 @@ if __name__ == "__main__":
             )
 
 
-# TODO: use dict of tuples instead of dict of dict
-# FIXME: buggy
+# TODO: remove dict of dict mode
+# TODO: dict of dict uses the size field in its decision while dict of tuple does not
 def filter_bounds(
     bounds: tp.Dict[str, tp.Dict[str, int]],
     max_len: int = None,
@@ -406,6 +406,8 @@ def filter_bounds(
                 v_1["lower"] is not None
                 and v_1["upper"] is not None
                 and v_1["size"] >= v_1["upper"]
+                if "size" in v_1
+                else True
                 and v_1["upper"] > v_1["lower"]
                 and (v_1["lower"] < max_len if isinstance(max_len, int) else True)
             )
@@ -414,17 +416,15 @@ def filter_bounds(
         k: v
         for k, v in bounds.items()
         if (
-            v["lower"] is not None
-            and v["upper"] is not None
-            and v["size"] >= v["upper"]
-            and v["upper"] > v["lower"]
-            and (v["lower"] < max_len if isinstance(max_len, int) else True)
+            v[0] is not None
+            and v[1] is not None
+            and v[1] > v[0]
+            and (v[0] < max_len if isinstance(max_len, int) else True)
         )
     }
 
 
-# TODO: use dict of tuples instead of dict of dict
-# FIXME: buggy
+# TODO: remove dict of dict mode
 def get_bounds(
     text_section_bounds_file: Pathlike,
     dict_of_dict: bool = False,
