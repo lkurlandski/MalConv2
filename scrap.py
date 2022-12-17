@@ -205,6 +205,29 @@ def different_model_outputs():
     print(f"{second_tensor_as_batch==second_tensor_as_single=}")
 
 
+def move_files():
+    paths = [
+        Path(
+            "/home/lk3591/Documents/code/MalConv2/outputs/explain/softmax__False/layer__None/alg__FeaturePermutation/baselines__0/feature_mask_mode__all/feature_mask_size__256/method__None/n_steps__None/perturbations_per_eval__None/sliding_window_shapes_size__None/strides__None/target__1"),
+        Path(
+            "/home/lk3591/Documents/code/MalConv2/outputs/explain/softmax__False/layer__None/alg__KernelShap/baselines__0/feature_mask_mode__all/feature_mask_size__256/method_None/n_steps__None/perturbations_per_eval__None/sliding_window_shapes_size__None/strides__None/target__1"),
+        Path(
+            "/home/lk3591/Documents/code/MalConv2/outputs/explain/softmax__False/layer__None/alg__KernelShap/baselines__0/feature_mask_mode__all/feature_mask_size__512/method_None/n_steps__None/perturbations_per_eval__None/sliding_window_shapes_size__None/strides__None/target__1"),
+        Path(
+            "/home/lk3591/Documents/code/MalConv2/outputs/explain/softmax__False/layer__None/alg__KernelShap/baselines__0/feature_mask_mode__text/feature_mask_size__64/method__None/n_steps__None/perturbations_per_eval__None/sliding_window_shapes_size__None/strides__None/target__1"),
+    ]
+
+    for path in paths:
+        for m in ["mal", "ben"]:
+            p = path / m
+            p_ = p / "output"
+            p_.mkdir(exist_ok=True)
+            for f in p.iterdir():
+                if f.suffix != ".pt":
+                    continue
+                f.rename(p_ / f.name)
+
+
 if __name__ == "__main__":
     grad_cam_attribution()
 
