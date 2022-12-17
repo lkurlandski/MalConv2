@@ -257,36 +257,36 @@ class FeatureMask:
         return mask.to(torch.int64)
 
 
-def explain_batch(
-    explain_params: ExplainParams,
-    model: cl.MalConvLike,
-    forward_function: ForwardFunction,
-    layer: torch.nn.Module,
+def get_explanation_algorithm(
+    alg: str, forward_function: ForwardFunction, layer: nn.Module = None
+) -> ca._utils.attribution.Attribution:
+    if alg == "FeatureAblation":
+        return ca.FeatureAblation(forward_function)
+    if alg == "FeaturePermutation":
+        return ca.FeaturePermutation(forward_function)
+    if alg == "IntegratedGradients":
+        return ca.IntegratedGradients(forward_function)
+    if alg == "KernelShap":
+        return ca.KernelShap(forward_function)
+    if alg == "LayerActivation":
+        return ca.LayerActivation(forward_function, layer)
+    if alg == "LayerIntegratedGradients":
+        return ca.LayerIntegratedGradients(forward_function, layer)
+    if alg == "Occlusion":
+        return ca.Occlusion(forward_function)
+    if alg == "ShapleyValueSampling":
+        return ca.ShapleyValueSampling(forward_function)
+    raise ValueError(f"Unknown algorithm: {alg}")
+
+
+def get_algorithm_kwargs(
+    alg: ca._utils.attribution.Attribution,
+    attrib_params: AttribParams,
     inputs: Tensor,
     lowers: tp.List[int] = None,
     uppers: tp.List[int] = None,
-) -> Tensor:
-    if explain_params.alg == "FeatureAblation":
-        alg = ca.FeatureAblation(forward_function)
-    elif explain_params.alg == "FeaturePermutation":
-        alg = ca.FeaturePermutation(forward_function)
-    elif explain_params.alg == "IntegratedGradients":
-        alg = ca.IntegratedGradients(forward_function)
-    elif explain_params.alg == "KernelShap":
-        alg = ca.KernelShap(forward_function)
-    elif explain_params.alg == "LayerActivation":
-        alg = ca.LayerActivation(forward_function, getattr(model, layer))
-    elif explain_params.alg == "LayerIntegratedGradients":
-        alg = ca.LayerIntegratedGradients(forward_function, getattr(model, layer))
-    elif explain_params.alg == "Occlusion":
-        alg = ca.Occlusion(forward_function)
-    elif explain_params.alg == "ShapleyValueSampling":
-        alg = ca.ShapleyValueSampling(forward_function)
-    else:
-        raise ValueError(f"Unknown algorithm: {explain_params.alg}")
-
+) -> tp.Dict[str, tp.Any]:
     # Collect valid keyword arguments for this particular algorithm's attribute method
-    attrib_params = explain_params.attrib_params
     valid = set(signature(alg.attribute).parameters.keys())
     kwargs = {k: v for k, v in asdict(attrib_params).items() if k in valid and v is not None}
 
@@ -303,11 +303,11 @@ def explain_batch(
             lowers,
             uppers,
         )().to(cfg.device)
+
     if "sliding_window_shapes" in valid and attrib_params.sliding_window_shapes_size is not None:
         kwargs["sliding_window_shapes"] = (attrib_params.sliding_window_shapes_size,)
 
-    attribs = alg.attribute(inputs, **kwargs)
-    return attribs
+    return kwargs
 
 
 def run(
@@ -321,6 +321,7 @@ def run(
     model = cl.get_model(model_params.name)
     forward_function = cl.forward_function_malconv(model, explain_params.softmax)
     layer = None if explain_params.layer is None else getattr(model, explain_params.layer)
+    alg = get_explaination_algorithm(explain_params.alg, forward_function, layer)
 
     # Set up the output structure
     ben_oh = OutputHelper.from_params(explain_params, control_params, split="ben")
@@ -417,15 +418,14 @@ def run(
                     lowers = [bounds[f.as_posix()]["lower"] for f in files]
                     uppers = [bounds[f.as_posix()]["upper"] for f in files]
 
-                attribs = explain_batch(
-                    explain_params,
-                    model,
-                    forward_function,
-                    layer,
+                kwargs = get_algorithm_kwargs(
+                    alg,
+                    explain_params.attrib_params,
                     inputs,
                     lowers,
                     uppers,
                 )
+                attribs = alg.attribute(inputs, **kwargs)
                 for attr, f in zip(attribs, files):
                     torch.save(attr, oh.output_path / (f.name + ".pt"))
 
