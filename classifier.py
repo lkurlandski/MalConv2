@@ -60,7 +60,20 @@ class DataParams:
     bad: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]] = None
 
 
-def forward_function_malconv(model, softmax: bool) -> tp.Callable[[Tensor], Tensor]:
+class ForwardFunctionMalConv(torch.nn.Module):
+    def __init__(self, model: MalConvLike, softmax: bool):
+        super().__init__()
+        self.model = model
+        self.softmax = softmax
+
+    def forward(self, X: Tensor):
+        X = self.model(X)[0]
+        if self.softmax:
+            return F.softmax(X, dim=-1)
+        return X
+
+
+def forward_function_malconv(model: MalConvLike, softmax: bool) -> tp.Callable[[Tensor], Tensor]:
     if softmax:
         return lambda x: F.softmax(model(x)[0], dim=-1)
     else:
