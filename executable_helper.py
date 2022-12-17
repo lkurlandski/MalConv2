@@ -4,18 +4,22 @@
 https://blog.kowalczyk.info/articles/pefileformat.html
 """
 
-from collections import OrderedDict
+from __future__ import annotations
+from collections import defaultdict, OrderedDict
 from dataclasses import dataclass
 import gzip
+import json
 from pathlib import Path
-from pprint import pformat, pprint
+from pprint import pformat, pprint  # pylint: disable=unused-import
 import typing as tp
 
+import capstone as cs
 import lief
 import numpy as np
 import pandas as pd
 import pefile
 from torch import Tensor
+from tqdm import tqdm
 
 from utils import Pathlike
 from typing_ import ErrorMode, ExeToolkit
@@ -281,114 +285,58 @@ def stream_text_section_data(
         yield f, l, u, x
 
 
-def generate_text_section_bounds_file(
-    files: tp.Union[Pathlike, tp.Iterable[Pathlike]],
-    toolkit: ExeToolkit,
-    outfile: Pathlike,
-    min_size: tp.Optional[int] = None,
-    max_size: tp.Optional[int] = None,
-    errors: ErrorMode = "raise",
-    verbose: bool = False,
-) -> None:
+class CreateTextSectionBoundsFiles:
     """
-    Generate a file containing the lower and upper bounds of the .text section from non-problematic PE files.
+    Create csv files storing the lower/upper bounds of the .text section.
+
+    Usage
+    -----
+    >>> CreateTextSectionBoundsFiles("outputs/dataset")()
     """
-    with open(outfile, "w") as handle:
-        handle.write("file,lower,upper,size\n")
-        for f, l, u in stream_text_section_bounds(
-            files, toolkit, min_size, max_size, errors, verbose
-        ):
-            s = f.stat().st_size
-            handle.write(f"{f.as_posix()},{l},{u},{s}\n")
 
+    toolkits = ["pefile", "lief"]
+    error_modes = ["ignore", "replace"]
 
-def _test(compare=False, analyze=True):
-    import numpy as np
-    import pandas as pd
+    def __init__(self, output_path: Pathlike, files: tp.Iterable[Path] = None) -> None:
+        self.output_path = Path(output_path)
+        self.files = self.get_default_files() if files is None else files
 
-    from classifier import SOREL_TRAIN_PATH
+    def __call__(self) -> CreateTextSectionBoundsFiles:
+        for toolkit in self.toolkits:
+            for errors in self.error_modes:
+                print(f"Working on {toolkit=} and {errors=}")
+                outfile = self.output_path / f"text_section_bounds_{toolkit}_{errors}.csv"
+                self.create_text_section_bounds_files(self.files, toolkit, outfile, errors=errors)
+        return self
 
-    if compare:
-        total = len(list(Path(SOREL_TRAIN_PATH).iterdir()))
+    @staticmethod
+    def get_default_files() -> tp.List[Path]:
+        import classifier as cl
 
-        print("Testing LIEF Functions")
-        gen = stream_text_section_bounds(
-            files=Path(SOREL_TRAIN_PATH).iterdir(),
-            toolkit="lief",
-            errors="warn",
+        return (
+            list(cl.SOREL_TEST_PATH.iterdir())
+            + list(cl.SOREL_TRAIN_PATH.iterdir())
+            + list(cl.WINDOWS_TEST_PATH.iterdir())
+            + list(cl.WINDOWS_TRAIN_PATH.iterdir())
         )
-        lief_files = {}
-        for i, (f, l, u) in enumerate(gen):
-            # print(f.name, l, u)
-            lief_files[f.name] = (l, u)
 
-        print("Testing pefile Functions")
-        gen = stream_text_section_bounds(
-            files=Path(SOREL_TRAIN_PATH).iterdir(),
-            toolkit="pefile",
-            errors="warn",
-        )
-        pefile_files = dict()
-        for i, (f, l, u) in enumerate(gen):
-            # print(f.name, l, u)
-            pefile_files[f.name] = (l, u)
-
-        print(f"pefile processed: {len(pefile_files)} / {total} files")
-        x = set(pefile_files.keys()) - set(lief_files.keys())
-        print(f"pefile successful where LIEF failed:\n{pformat(x)}")
-        print(f"LIEF processed: {len(lief_files)} / {total} files")
-        x = set(lief_files.keys()) - set(pefile_files.keys())
-        print(f"LIEF successful where pefile failed:\n{pformat(x)}")
-
-        files = [p.name for p in SOREL_TRAIN_PATH.iterdir()]
-        results = pd.DataFrame(
-            {
-                "File": files,
-                "lower-lief": [lief_files[f][0] if f in lief_files else np.NaN for f in files],
-                "lower-pefile": [
-                    pefile_files[f][0] if f in pefile_files else np.NaN for f in files
-                ],
-                "upper-lief": [lief_files[f][1] if f in lief_files else np.NaN for f in files],
-                "upper-pefile": [
-                    pefile_files[f][1] if f in pefile_files else np.NaN for f in files
-                ],
-            }
-        )
-        results.to_csv("results.txt", index=False)
-
-    if analyze:
-        results = pd.read_csv("results.txt")
-        lower_equal = (results["lower-lief"] == results["lower-pefile"]) | (
-            results["lower-lief"].isna() & results["lower-pefile"].isna()
-        )
-        upper_equal = (results["upper-lief"] == results["upper-pefile"]) | (
-            results["upper-lief"].isna() & results["upper-pefile"].isna()
-        )
-        equal = lower_equal & upper_equal
-        results["equal"] = equal
-        results.to_csv("results.txt", index=False)
-
-
-if __name__ == "__main__":
-    import classifier as cl
-
-    for toolkit in ["pefile", "lief"]:
-        for errors in ["ignore", "replace"]:
-            print(toolkit, errors)
-            outfile = Path(f"outputs/dataset/text_section_bounds_{toolkit}_{errors}.csv")
-            if outfile.exists():
-                continue
-            generate_text_section_bounds_file(
-                (
-                    list(cl.SOREL_TEST_PATH.iterdir())
-                    + list(cl.SOREL_TRAIN_PATH.iterdir())
-                    + list(cl.WINDOWS_TEST_PATH.iterdir())
-                    + list(cl.WINDOWS_TRAIN_PATH.iterdir())
-                ),
-                toolkit,
-                outfile,
-                errors=errors,
-            )
+    @staticmethod
+    def create_text_section_bounds_files(
+        files: tp.Union[Pathlike, tp.Iterable[Pathlike]],
+        toolkit: ExeToolkit,
+        outfile: Pathlike,
+        min_size: tp.Optional[int] = None,
+        max_size: tp.Optional[int] = None,
+        errors: ErrorMode = "raise",
+        verbose: bool = False,
+    ) -> None:
+        with open(outfile, "w") as handle:
+            handle.write("file,lower,upper,size\n")
+            for f, l, u in tqdm(stream_text_section_bounds(
+                files, toolkit, min_size, max_size, errors, verbose
+            ), total=len(list(files))):
+                s = f.stat().st_size
+                handle.write(f"{f.as_posix()},{l},{u},{s}\n")
 
 
 # TODO: remove dict of dict mode
@@ -437,3 +385,7 @@ def get_bounds(
     if dict_of_dict:
         return d
     return {k: (v["lower"], v["upper"]) for k, v in d.items()}
+
+
+if __name__ == "__main__":
+    CreateTextSectionBoundsFiles("temp")()
