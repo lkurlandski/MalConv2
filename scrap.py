@@ -10,6 +10,7 @@ import os
 import time
 import typing as tp
 
+from captum.attr import GuidedGradCam, LayerGradCam
 import torch
 from torch import Tensor
 from tqdm import tqdm
@@ -17,6 +18,24 @@ from tqdm import tqdm
 import classifier as cl
 import cfg
 from utils import section_header
+
+
+def grad_cam_attribution(layer:bool = False):
+    cfg.init("cpu", 0)
+    model = cl.get_model("gct")
+    if layer:
+        gc = LayerGradCam(cl.ForwardFunctionMalConv(model, False), model.convs_share[-1])
+    else:
+        gc = GuidedGradCam(cl.ForwardFunctionMalConv(model, False), model.fc_2)
+    dataset, dataloader = cl.get_dataset_and_loader(good=None, bad=cl.WINDOWS_TRAIN_PATH.iterdir())
+
+    for X, _ in dataloader:
+        X: Tensor = X.to(cfg.device)
+        X: Tensor = X.to(torch.float32)
+        X: Tensor = X.requires_grad_()
+        attribs = gc.attribute(X, target=1)
+        print(f"{attribs.shape=}\n{attribs}")
+        break
 
 
 def run_sample(i: int, j: int = None, verbose: bool = False):
@@ -187,4 +206,5 @@ def different_model_outputs():
 
 
 if __name__ == "__main__":
-    different_model_outputs()
+    grad_cam_attribution()
+
