@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from inspect import signature
 from itertools import chain
+import logging
 import os  # pylint: disable=unused-import
 from pathlib import Path  # pylint: disable=unused-import
 from pprint import pformat, pprint  # pylint: disable=unused-import
@@ -30,9 +31,11 @@ from tqdm import tqdm
 import torch
 from torch import nn, Tensor
 
+from argparse_ import LoggingArgumentParser
 import classifier as cl
 import cfg
 import executable_helper
+from logging_ import setup_logging
 from typing_ import ForwardFunction, Pathlike
 from utils import batch, ceil_divide, exception_info, get_offset_chunk_tensor, section_header
 
@@ -403,11 +406,10 @@ def run(
         initial = 0
         total = ceil_divide(len(dataset), data_params.batch_size)
         gen = tqdm(gen, total=total, initial=initial) if control_params.progress_bar else gen
-        print(f"Starting explanations: {initial=}, {start=}, {end=}, {total=} @{datetime.now()}")
+        logging.log(logging.INFO, f"Starting explanations: {initial=}, {start=}, {end=}, {total=} @{datetime.now()}")
         for i, ((inputs, targets), files) in enumerate(gen):
             try:
-                if control_params.verbose:
-                    print(f"{i} / {total} = {100 * i // total}% @{datetime.now()}", flush=True)
+                logging.log(logging.INFO, f"{i} / {total} = {100 * i // total}% @{datetime.now()}")
                 if (start is not None and i < start) or (end is not None and i > end):
                     continue
                 inputs = inputs.to(cfg.device)
@@ -435,7 +437,7 @@ def run(
                 else:
                     ignore = {"ben_files", "mal_files", "bounds"}
                     locals_ = {k: v for k, v in locals().items() if k not in ignore}
-                    print(exception_info(e, locals_))
+                    logging.log(logging.ERROR, exception_info(e, locals_))
                 if control_params.errors == "raise":
                     raise e
 
@@ -491,12 +493,11 @@ def analyze(
 
             # TODO: determine why this happens...
             if attribs_text.shape[0] == 0:
-                print(f"WARNING: skipping empty text attributions: {f.as_posix()}")
+                logging.log(logging.WARNING, f"WARNING: skipping empty text attributions: {f.as_posix()}")
                 continue
 
             if (o := get_offset_chunk_tensor(attribs_text, chunk_size)) != 0:
-                print(f"WARNING: attributions have nonzero chunk offset {o=}")
-                print(f"Skipping {f.as_posix()}")
+                logging.log(logging.WARNING, f"WARNING: attributions have nonzero chunk offset {o=}. Skipping {f.as_posix()}")
 
             chunk_offsets = [o for o in range(0, len(attribs_text), chunk_size)]
             chunk_attribs = attribs_text[chunk_offsets]
@@ -573,13 +574,15 @@ def main(config: ConfigParser, run_: bool, analyze_: bool) -> None:
 
 
 if __name__ == "__main__":
-    print(section_header(f"START @{datetime.now()}"))
-    parser = ArgumentParser()
+    parser = LoggingArgumentParser()
     parser.add_argument("--config_file", type=str, default="config_files/explain/default.ini")
     parser.add_argument("--run", action="store_true", default=False)
     parser.add_argument("--analyze", action="store_true", default=False)
     args = parser.parse_args()
     config = ConfigParser(allow_no_value=True)
     config.read(args.config_file)
+    setup_logging(args.log_filename, args.log_filemode, args.log_format, args.log_level)
+    logging.log(logging.INFO, section_header(f"START @{datetime.now()}"))
+    logging.log(logging.INFO, f"{config=}")
     main(config, args.run, args.analyze)
-    print(section_header(f"END @{datetime.now()}"))
+    logging.log(logging.INFO, section_header(f"END @{datetime.now()}"))

@@ -2,11 +2,14 @@
 
 """
 
+from pathlib import Path
 import random
 import typing as tp
 
 import numpy as np
 import torch
+
+LOG_PATH = Path("./logs")
 
 
 def print_config():

@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass
 import json
+import logging
 import multiprocessing as mp
 from pathlib import Path
 import typing as tp
@@ -101,8 +102,7 @@ def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:
     model.load_state_dict(state["model_state_dict"], strict=False)
     model.to(cfg.device)
     model.eval()
-    if verbose:
-        print(f"{model=}")
+    logging.log(logging.INFO, f"{model=}")
     return model
 
 
@@ -163,10 +163,10 @@ def _get_datasets(
         idx = np.random.choice(len(test_dataset), n_test, replace=False)
         test_dataset = Subset(test_dataset, idx)
     if verbose:
-        print(f"{len(train_dataset)=}")
-        print(f"{train_dataset=}")
-        print(f"{len(test_dataset)=}")
-        print(f"{test_dataset=}")
+        logging.log(logging.INFO,
+            f"{len(train_dataset)=} -- train_dataset={train_dataset}"
+            f"{len(test_dataset)=} -- test_dataset={test_dataset}"
+        )
     return train_dataset, test_dataset
 
 
@@ -193,10 +193,9 @@ def _get_loaders(
         collate_fn=pad_collate_func,
         sampler=test_sampler,
     )
-    if verbose:
-        print(f"{loader_threads=}")
-        print(f"{train_loader=}")
-        print(f"{test_loader=}")
+    logging.log(logging.INFO,
+        f"{loader_threads=} -- train_loader={train_loader} -- test_loader={test_loader}"
+    )
     return train_loader, test_loader
 
 
