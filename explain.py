@@ -28,7 +28,7 @@ import typing as tp
 import captum.attr as ca
 from tqdm import tqdm
 import torch
-from torch import Tensor
+from torch import nn, Tensor
 
 import classifier as cl
 import cfg
@@ -281,7 +281,7 @@ def get_explanation_algorithm(
 
 def get_algorithm_kwargs(
     alg: ca._utils.attribution.Attribution,
-    attrib_params: AttribParams,
+    attrib_params: AttributeParams,
     inputs: Tensor,
     lowers: tp.List[int] = None,
     uppers: tp.List[int] = None,
@@ -321,7 +321,7 @@ def run(
     model = cl.get_model(model_params.name)
     forward_function = cl.forward_function_malconv(model, explain_params.softmax)
     layer = None if explain_params.layer is None else getattr(model, explain_params.layer)
-    alg = get_explaination_algorithm(explain_params.alg, forward_function, layer)
+    alg = get_explanation_algorithm(explain_params.alg, forward_function, layer)
 
     # Set up the output structure
     ben_oh = OutputHelper.from_params(explain_params, control_params, split="ben")
