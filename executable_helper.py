@@ -353,9 +353,11 @@ def filter_bounds(
             if (
                 v_1["lower"] is not None
                 and v_1["upper"] is not None
-                and v_1["size"] >= v_1["upper"]
-                if "size" in v_1
-                else True
+                and (
+                    v_1["size"] >= v_1["upper"]
+                    if "size" in v_1
+                    else True
+                )
                 and v_1["upper"] > v_1["lower"]
                 and (v_1["lower"] < max_len if isinstance(max_len, int) else True)
             )
