@@ -23,6 +23,7 @@ import logging
 import os  # pylint: disable=unused-import
 from pathlib import Path  # pylint: disable=unused-import
 from pprint import pformat, pprint  # pylint: disable=unused-import
+import shutil
 import sys  # pylint: disable=unused-import
 import typing as tp
 
@@ -313,6 +314,18 @@ def get_algorithm_kwargs(
     return kwargs
 
 
+def setup_output_dir(path: Path, clean: bool, resume: bool) -> tp.Set[str]:
+    if path.exists() and not list(path.iterdir()):
+        if clean:
+            shutil.rmtree(path)
+        elif not resume:
+            raise FileExistsError("Use --resume or --clean to continue or remove a previous experiment.")
+    else:
+        path.mkdir(exist_ok=True, parents=True)
+
+    return set(p.stem for p in path.iterdir())
+
+
 def run(
     model_params: cl.ModelParams,
     data_params: cl.DataParams,
@@ -325,16 +338,20 @@ def run(
     forward_function = cl.forward_function_malconv(model, explain_params.softmax)
     layer = None if explain_params.layer is None else getattr(model, explain_params.layer)
     alg = get_explanation_algorithm(explain_params.alg, forward_function, layer)
-
-    # Set up the output structure
+    
     ben_oh = OutputHelper.from_params(explain_params, control_params, split="ben")
-    ben_oh.output_path.mkdir(parents=True, exist_ok=True)
     mal_oh = OutputHelper.from_params(explain_params, control_params, split="mal")
-    mal_oh.output_path.mkdir(parents=True, exist_ok=True)
+    ben_done = setup_output_dir(ben_oh.output_path, CLEAN, RESUME)
+    mal_done = setup_output_dir(mal_oh.output_path, CLEAN, RESUME)
 
     # Benign and malicious files to explain
-    ben_files = list(chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir()))
-    mal_files = list(chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir()))
+    ben_files = [p for p in chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir()) if p.stem not in ben_done]
+    mal_files = [p for p in chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir()) if p.stem not in mal_done]
+
+    logging.log(logging.INFO,
+        f"{len(ben_done)=} -- {len(ben_files)=} -- len(WINDOWS)={len(list(chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())))}"
+        f"\n{len(mal_done)=} -- {len(mal_files)=} -- len(SOREL)={len(list(chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())))}"
+    )
 
     # Lower and upper bounds for the text sections of all the files
     if explain_params.attrib_params.feature_mask_mode == "text":
@@ -453,11 +470,12 @@ def analyze(
     chunk_size = explain_params.attrib_params.feature_mask_size
     assert isinstance(chunk_size, int), "Fixed-size chunk attribution method required."
 
+    # Set up the output structure
     ben_oh = OutputHelper.from_params(explain_params, control_params, split="ben")
-    ben_oh.analysis_path.mkdir(exist_ok=True)
     mal_oh = OutputHelper.from_params(explain_params, control_params, split="mal")
-    mal_oh.analysis_path.mkdir(exist_ok=True)
-
+    ben_done = setup_output_dir(ben_oh.analysis_path, CLEAN, RESUME)
+    mal_done = setup_output_dir(mal_oh.analysis_path, CLEAN, RESUME)
+    
     bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file)
     bounds = executable_helper.filter_bounds(bounds)
     include = set(Path(p).name for p in bounds.keys()).intersection(
@@ -468,12 +486,12 @@ def analyze(
     ben_files = [
         p
         for p in chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())
-        if p.name in include
+        if (p.name in include and p.stem not in ben_done)
     ]
     mal_files = [
         p
         for p in chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
-        if p.name in include
+        if (p.name in include and p.stem not in mal_done)
     ]
 
     data = [
@@ -578,11 +596,15 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="config_files/explain/default.ini")
     parser.add_argument("--run", action="store_true", default=False)
     parser.add_argument("--analyze", action="store_true", default=False)
+    parser.add_argument("--clean", action="store_true", default=False)
+    parser.add_argument("--resume", action="store_true", default=False)
     args = parser.parse_args()
     config = ConfigParser(allow_no_value=True)
     config.read(args.config_file)
     setup_logging(args.log_filename, args.log_filemode, args.log_format, args.log_level)
     logging.log(logging.INFO, section_header(f"START @{datetime.now()}"))
     logging.log(logging.INFO, f"{config=}")
+    CLEAN: bool = args.clean
+    RESUME: bool = args.resume
     main(config, args.run, args.analyze)
     logging.log(logging.INFO, section_header(f"END @{datetime.now()}"))
