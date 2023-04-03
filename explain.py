@@ -415,6 +415,7 @@ def run(
             control_params.ben_end_batch,
         ),
     ]
+    data = list(reversed(data)) if BEN_FIRST else data
 
     # Run the explanation algorithm on each dataset
     for dataset, loader, oh, start, end in data:
@@ -467,37 +468,28 @@ def analyze(
     explain_params: ExplainParams,
     control_params: ControlParams,
 ) -> None:
+
     chunk_size = explain_params.attrib_params.feature_mask_size
     assert isinstance(chunk_size, int), "Fixed-size chunk attribution method required."
 
-    # Set up the output structure
-    ben_oh = OutputHelper.from_params(explain_params, control_params, split="ben")
-    mal_oh = OutputHelper.from_params(explain_params, control_params, split="mal")
-    ben_done = setup_output_dir(ben_oh.analysis_path, CLEAN, RESUME)
-    mal_done = setup_output_dir(mal_oh.analysis_path, CLEAN, RESUME)
-    
     bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file)
     bounds = executable_helper.filter_bounds(bounds)
-    include = set(Path(p).name for p in bounds.keys()).intersection(
-        set(p.name.strip(".pt") for p in ben_oh.output_path.iterdir())
-        | set(p.name.strip(".pt") for p in mal_oh.output_path.iterdir())
-    )
 
-    ben_files = [
-        p
-        for p in chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())
-        if (p.name in include and p.stem not in ben_done)
-    ]
-    mal_files = [
-        p
-        for p in chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
-        if (p.name in include and p.stem not in mal_done)
-    ]
+    def get_data(split: tp.Literal["ben", "mal"], source_files: tp.List[Path]) -> tp.Tuple:
+        oh = OutputHelper.from_params(explain_params, control_params, split=split)
+        explained = set(p.name[0:p.name.find(".")] for p in oh.output_path.iterdir())
+        source_files = list(source_files)
+        files = [p for p in source_files if p.name[0:p.name.find(".")] in explained]
+        return (files, oh.output_path, oh.summary_file)
 
-    data = [
-        (ben_files, ben_oh.output_path, ben_oh.summary_file),
-        (mal_files, mal_oh.output_path, mal_oh.summary_file),
-    ]
+    data = []
+    if MAL:
+        source_files = chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
+        data.append(get_data("mal", source_files))
+    if BEN:
+        source_files = chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())
+        data.append(get_data("ben", source_files))
+    data = list(reversed(data)) if BEN_FIRST else data
 
     for files, attribs_path, summary_file in data:
         with open(summary_file, "w") as handle:
@@ -505,9 +497,8 @@ def analyze(
 
         for f in tqdm(files):
             l_text, u_text = bounds[f.as_posix()]
-            attribs_text = torch.load(attribs_path / (f.name + ".pt"), map_location=cfg.device)[
-                l_text:u_text
-            ]
+            f_attribs = attribs_path / (f.name + ".pt")
+            attribs_text = torch.load(f_attribs, map_location=cfg.device)[l_text:u_text]
 
             # TODO: determine why this happens...
             if attribs_text.shape[0] == 0:
@@ -596,15 +587,28 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="config_files/explain/default.ini")
     parser.add_argument("--run", action="store_true", default=False)
     parser.add_argument("--analyze", action="store_true", default=False)
+    parser.add_argument("--no_mal", action="store_true", default=False)
+    parser.add_argument("--no_ben", action="store_true", default=False)
+    parser.add_argument("--ben_first", action="store_true", default=None)
+    parser.add_argument("--mal_first", action="store_true", default=None)
     parser.add_argument("--clean", action="store_true", default=False)
     parser.add_argument("--resume", action="store_true", default=False)
     args = parser.parse_args()
+
     config = ConfigParser(allow_no_value=True)
     config.read(args.config_file)
     setup_logging(args.log_filename, args.log_filemode, args.log_format, args.log_level)
     logging.log(logging.INFO, section_header(f"START @{datetime.now()}"))
     logging.log(logging.INFO, f"{config=}")
-    CLEAN: bool = args.clean
-    RESUME: bool = args.resume
+
+    CLEAN = bool(args.clean)
+    RESUME = bool(args.resume)
+    BEN = not bool(args.no_ben)
+    MAL = not bool(args.no_mal)
+    BEN_FIRST = bool(args.ben_first)
+    MAL_FIRST = bool(args.mal_first)
+    assert BEN or MAL, "Cannot specify both --no_ben and --no_mal"
+    assert not BEN_FIRST or not MAL_FIRST, "Cannot specify both --ben_first and --mal_first"
+    print(BEN, MAL)
     main(config, args.run, args.analyze)
     logging.log(logging.INFO, section_header(f"END @{datetime.now()}"))
