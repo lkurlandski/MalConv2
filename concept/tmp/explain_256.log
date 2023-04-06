@@ -1,0 +1,38 @@
+2023-03-02 14:14:56,755 - INFO - 
+----------------------------------------------------------------------------------------
+ --------------------------- START @2023-03-02 14:14:56.755357---------------------------
+----------------------------------------------------------------------------------------
+2023-03-02 14:14:56,755 - INFO - config=<configparser.ConfigParser object at 0x7f2bcc7b1ca0>
+2023-03-02 14:14:56,807 - INFO - model=MalConvGCT(
+  (pooling): AdaptiveMaxPool1d(output_size=1)
+  (cat): CatMod()
+  (embd): Embedding(257, 8, padding_idx=0)
+  (context_net): MalConvML(
+    (pooling): AdaptiveMaxPool1d(output_size=1)
+    (cat): CatMod()
+    (embd): Embedding(257, 8, padding_idx=0)
+    (convs): ModuleList(
+      (0): Conv1d(8, 512, kernel_size=(256,), stride=(64,))
+    )
+    (convs_1): ModuleList(
+      (0): Conv1d(256, 256, kernel_size=(1,), stride=(1,))
+    )
+    (fc_1): Linear(in_features=256, out_features=256, bias=True)
+    (fc_2): Linear(in_features=256, out_features=256, bias=True)
+  )
+  (convs): ModuleList(
+    (0): Conv1d(8, 512, kernel_size=(256,), stride=(64,))
+  )
+  (linear_atn): ModuleList(
+    (0): Linear(in_features=256, out_features=256, bias=True)
+  )
+  (convs_share): ModuleList(
+    (0): Conv1d(256, 256, kernel_size=(1,), stride=(1,))
+  )
+  (fc_1): Linear(in_features=256, out_features=256, bias=True)
+  (fc_2): Linear(in_features=256, out_features=2, bias=True)
+)
+2023-03-02 14:14:56,881 - INFO - len(ben_done)=2696 -- len(ben_files)=2855 -- len(WINDOWS)=2855
+len(mal_done)=2552 -- len(mal_files)=1664 -- len(SOREL)=4216
+2023-03-02 14:14:57,186 - INFO - Starting explanations: initial=0, start=None, end=None, total=42 @2023-03-02 14:14:57.186120
+2023-03-02 14:14:57,437 - INFO - 0 / 42 = 0% @2023-03-02 14:14:57.437640
