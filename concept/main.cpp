@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <dirent.h>
+#include <sys/stat.h>
 #include "ISortFunction.h"
 #include "mergesort.h"
 // #include "quicksort.h"
