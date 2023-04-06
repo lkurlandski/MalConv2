@@ -82,14 +82,14 @@ void sortAndEncryptFiles(const std::string& rootPath, ISortFunction* sortFunctio
     for (const std::string& file : files) {
         std::cout << "Encrypting file: " << file << std::endl;
         std::string encryptedFile = "encrypted/" + file + ".enc"; // Encrypted file path
-        encryptionLibrary->encryptFile(file, encryptedFile); // Encrypt the file content
+        encryptionLibrary->encryptFile(rootPath + "/" + file, encryptedFile); // Encrypt the file content
     }
 
     // Decrypt files using the specified encryption library
     for (const std::string& file : files) {
         std::cout << "Decrypting file: " << file << std::endl;
         std::string decryptedFile = "decrypted/" + file; // Decrypted file path
-        encryptionLibrary->decryptFile(file, decryptedFile); // Decrypt the file content
+        encryptionLibrary->decryptFile("encrypted/" + file + ".enc", rootPath + "/" + decryptedFile); // Decrypt the file content
     }
 
 }
