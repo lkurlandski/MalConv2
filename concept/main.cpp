@@ -65,13 +65,12 @@ void sortAndEncryptFiles(const std::string& rootPath, ISortFunction* sortFunctio
 }
 
 int main(int argc, char** argv) {
-    if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <root_path> <sort_type>" << std::endl;
+    if (argc != 2) {
+        std::cout << "Usage: " << argv[0] << std::endl;
         return 1;
     }
 
     std::string rootPath = argv[1];
-    std::string sortType = argv[2];
 
     // Create an instance of the specified sorting function
     ISortFunction* sortFunction = new MergeSort();
