@@ -12,6 +12,30 @@
 // #include "cryptoppeencryption.h"
 // #include "tomcryptencryption.h"
 
+#ifdef _WIN32
+#include <direct.h> // for _mkdir on Windows
+#else
+#include <sys/stat.h> // for mkdir on Unix-like systems
+#endif
+
+
+void createDirectory(const std::string& directoryName) {
+    // Create a directory
+#ifdef _WIN32
+    // Windows-specific code to create directory
+    int result = _mkdir(directoryName.c_str());
+#else
+    // Unix-like systems
+    int result = mkdir(directoryName.c_str(), 0777);
+#endif
+
+    if (result == 0) {
+        std::cout << "Created directory: " << directoryName << std::endl;
+    } else {
+        std::cerr << "Failed to create directory: " << directoryName << std::endl;
+    }
+}
+
 
 // Function to check if a given path is a directory
 bool isDirectory(const std::string& path) {
@@ -51,17 +75,23 @@ void sortAndEncryptFiles(const std::string& rootPath, ISortFunction* sortFunctio
     // Sort files using the specified sorting function
     sortFunction->sort(files);
 
+    createDirectory("encrypted");
+    createDirectory("decrypted");
+
     // Encrypt files using the specified encryption library
-    for (std::string& file : files) {
+    for (const std::string& file : files) {
         std::cout << "Encrypting file: " << file << std::endl;
-        encryptionLibrary->encrypt(file);
+        std::string encryptedFile = "encrypted/" + file + ".enc"; // Encrypted file path
+        encryptionLibrary->encryptFile(file, encryptedFile); // Encrypt the file content
     }
 
     // Decrypt files using the specified encryption library
-    for (std::string& file : files) {
+    for (const std::string& file : files) {
         std::cout << "Decrypting file: " << file << std::endl;
-        encryptionLibrary->decrypt(file);
+        std::string decryptedFile = "decrypted/" + file; // Decrypted file path
+        encryptionLibrary->decryptFile(file, decryptedFile); // Decrypt the file content
     }
+
 }
 
 int main(int argc, char** argv) {
