@@ -1,6 +1,8 @@
 // iencryptionlibrary.h
 #pragma once
 
+#include <fstream>
+#include <iostream>
 #include <string>
 
 class IEncryptionLibrary {
