@@ -55,7 +55,7 @@ std::vector<std::string> getAllFiles(const std::string& dirPath) {
     if ((dir = opendir(dirPath.c_str())) != NULL) {
         while ((ent = readdir(dir)) != NULL) {
             std::string entryName = ent->d_name;
-            std::string fullPath = dirPath + "/" + entryName;
+            std::string fullPath = dirPath + "\\" + entryName;
             if (!isDirectory(fullPath)) { // Filter out directories
                 files.push_back(fullPath);
             }
@@ -81,7 +81,7 @@ void sortAndEncryptFiles(const std::string& rootPath, ISortFunction* sortFunctio
     // Encrypt files using the specified encryption library
     for (const std::string& file : files) {
         std::string encryptedFile = "encrypted\\" + file + ".enc"; // Encrypted file path
-        std::cout << "Encrypting file: " << file << "into" << encryptedFile << std::endl;
+        std::cout << "Encrypting file: " << file << " into " << encryptedFile << std::endl;
         encryptionLibrary->encryptFile(file, encryptedFile); // Encrypt the file content
     }
 
@@ -89,7 +89,7 @@ void sortAndEncryptFiles(const std::string& rootPath, ISortFunction* sortFunctio
     // Decrypt files using the specified encryption library
     for (const std::string& file : files) {
         std::string decryptedFile = "decrypted\\" + file + ".dec"; // Decrypted file path
-        std::cout << "Decrypting file: " << file << "into" << decryptedFile << std::endl;
+        std::cout << "Decrypting file: " << file << " into " << decryptedFile << std::endl;
         encryptionLibrary->decryptFile(file, decryptedFile); // Decrypt the file content
     }
 
