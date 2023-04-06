@@ -11,32 +11,41 @@
 // #include "CryptoPPEncryption.h"
 // #include "TomCryptEncryption.h"
 
-void getAllFiles(const std::string& directory, std::vector<std::string>& files) {
+
+// Function to check if a given path is a directory
+bool isDirectory(const std::string& path) {
+    struct stat fileStat;
+    if (stat(path.c_str(), &fileStat) != 0) {
+        return false;
+    }
+    return S_ISDIR(fileStat.st_mode);
+}
+
+// Function to get all files in a directory (excluding subdirectories)
+std::vector<std::string> getAllFiles(const std::string& dirPath) {
+    std::vector<std::string> files;
     DIR* dir;
-    struct dirent* entry;
+    struct dirent* ent;
 
-    if ((dir = opendir(directory.c_str())) == nullptr) {
-        return;
-    }
-
-    while ((entry = readdir(dir)) != nullptr) {
-        std::string fileName = entry->d_name;
-        std::string filePath = directory + "/" + fileName;
-
-        if (entry->d_type == DT_REG) {  // Check if it's a regular file
-            files.push_back(filePath);
-        } else if (entry->d_type == DT_DIR && fileName != "." && fileName != "..") {  // Check if it's a directory
-            getAllFiles(filePath, files);  // Recursively search for files in subdirectories
+    if ((dir = opendir(dirPath.c_str())) != NULL) {
+        while ((ent = readdir(dir)) != NULL) {
+            std::string entryName = ent->d_name;
+            std::string fullPath = dirPath + "/" + entryName;
+            if (!isDirectory(fullPath)) { // Filter out directories
+                files.push_back(fullPath);
+            }
         }
+        closedir(dir);
+    } else {
+        std::cerr << "Failed to open directory: " << dirPath << std::endl;
     }
 
-    closedir(dir);
+    return files;
 }
 
 void sortAndEncryptFiles(const std::string& rootPath, ISortFunction* sortFunction, IEncryptionLibrary* encryptionLibrary) {
     // Find files in root path
-    std::vector<std::string> files;
-    getAllFiles(rootPath, files);
+    std::vector<std::string> files = getAllFiles(rootPath);
 
     // Sort files using the specified sorting function
     sortFunction->sort(files);
