@@ -3,14 +3,10 @@
 #include <vector>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "isortfunction.h"
-#include "mergesort.h"
-// #include "quicksort.h"
-// #include "heapsort.h"
-#include "iencryptionlibrary.h"
-// #include "opensslencryption.h"
-#include "cryptoppeencryption.h"
-// #include "tomcryptencryption.h"
+#include "..\..\isortfunction.h"
+#include "..\..\heapsort.h"
+#include "..\..\iencryptionlibrary.h"
+#include "..\..\opensslencryption.h"
 
 #ifdef _WIN32
 #include <direct.h> // for _mkdir on Windows
@@ -104,7 +100,7 @@ int main(int argc, char** argv) {
     std::string rootPath = argv[1];
 
     // Create an instance of the specified sorting function
-    ISortFunction* sortFunction = new MergeSort();
+    ISortFunction* sortFunction = new HeapSort();
 
     // Create an instance of the OpenSSL encryption library
     IEncryptionLibrary* encryptionLibrary = new OpenSSLEncryption();

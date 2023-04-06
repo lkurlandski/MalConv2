@@ -1,39 +1,39 @@
 // cryptoppeencryption.cpp
-#include "cryptoppeencryption.h"
-#include <cryptopp/hex.h>
-#include <cryptopp/osrng.h>
+#include "cryptopppencryption.h"
 
 void CryptoPPEncryption::encrypt(std::string& data) {
-    // Generate random key and IV
-    byte key[CryptoPP::AES::DEFAULT_KEYLENGTH];
-    byte iv[CryptoPP::AES::BLOCKSIZE];
+    // Generate a random key and IV
+    CryptoPP::SecByteBlock key(CryptoPP::AES::MAX_KEYLENGTH);
+    CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
     CryptoPP::AutoSeededRandomPool prng;
-    prng.GenerateBlock(key, sizeof(key));
+    prng.GenerateBlock(key, key.size());
     prng.GenerateBlock(iv, sizeof(iv));
 
     // Encrypt the data
-    std::string ciphertext;
-    CryptoPP::AES::Encryption aesEncryption(key, sizeof(key));
-    CryptoPP::CBC_Mode_ExternalCipher::Encryption cbcEncryption(aesEncryption, iv);
-    CryptoPP::StreamTransformationFilter stfEncryptor(cbcEncryption, new CryptoPP::StringSink(ciphertext));
-    stfEncryptor.Put(reinterpret_cast<const byte*>(data.c_str()), data.length() + 1);
-    stfEncryptor.MessageEnd();
+    CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption encryptor(key, key.size(), iv);
+    CryptoPP::StringSource encryptSource(data, true,
+        new CryptoPP::StreamTransformationFilter(encryptor,
+            new CryptoPP::StringSink(data)));
 
-    // Set the encrypted data as the result
-    data = ciphertext;
+    // Base64 encode the encrypted data
+    CryptoPP::StringSource base64Encoder(data, true,
+        new CryptoPP::Base64Encoder(new CryptoPP::StringSink(data), false));
 }
 
 void CryptoPPEncryption::decrypt(std::string& data) {
-    // Decrypt the data
-    std::string decryptedtext;
-    CryptoPP::AutoSeededRandomPool prng;
-    CryptoPP::StringSource s(reinterpret_cast<const byte*>(data.c_str()), data.size(), true,
-        new CryptoPP::HexDecoder(new CryptoPP::StreamTransformationFilter(
-            CryptoPP::AES::Decryption("01234567890123456789012345678901", sizeof("01234567890123456789012345678901")),
-            new CryptoPP::StringSink(decryptedtext)
-        ))
-    );
+    // Base64 decode the input data
+    CryptoPP::StringSource base64Decoder(data, true,
+        new CryptoPP::Base64Decoder(new CryptoPP::StringSink(data)));
 
-    // Set the decrypted data as the result
-    data = decryptedtext;
+    // Decrypt the data
+    CryptoPP::SecByteBlock key(CryptoPP::AES::MAX_KEYLENGTH);
+    CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
+    CryptoPP::StringSource(data, true,
+        new CryptoPP::ArraySink(key, key.size()));
+    CryptoPP::StringSource(data, true,
+        new CryptoPP::ArraySink(iv, sizeof(iv)));
+    CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption decryptor(key, key.size(), iv);
+    CryptoPP::StringSource decryptSource(data, true,
+        new CryptoPP::StreamTransformationFilter(decryptor,
+            new CryptoPP::StringSink(data)));
 }

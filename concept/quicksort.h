@@ -1,7 +1,7 @@
 // quicksort.h
 #pragma once
 
-#include "isortfunction.h" // Include interface for sort function
+#include "isortfunction.h"
 
 class QuickSort : public ISortFunction {
 public:

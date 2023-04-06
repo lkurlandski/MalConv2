@@ -1,0 +1,1 @@
+g++ main.cpp mergesort.cpp opensslencryption.cpp -o main -I"C:\Users\Luke\anaconda3\include" -L"C:\Users\Luke\anaconda3\libs" -lssl -lcrypto

@@ -1,6 +1,7 @@
+//heapsort.h
 #pragma once
 
-#include "isortfunction.h" // Include interface for sort function
+#include "isortfunction.h"
 
 class HeapSort : public ISortFunction {
 public:
