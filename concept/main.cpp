@@ -85,7 +85,7 @@ void sortAndEncryptFiles(const std::string& rootPath, ISortFunction* sortFunctio
         encryptionLibrary->encryptFile(file, encryptedFile); // Encrypt the file content
     }
 
-    std::vector<std::string> files = getAllFiles("encrypted");
+    files = getAllFiles("encrypted");
     // Decrypt files using the specified encryption library
     for (const std::string& file : files) {
         std::string decryptedFile = "decrypted\\" + file + ".dec"; // Decrypted file path
