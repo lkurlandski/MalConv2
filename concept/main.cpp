@@ -52,12 +52,16 @@ void sortAndEncryptFiles(const std::string& rootPath, ISortFunction* sortFunctio
     sortFunction->sort(files);
 
     // Encrypt files using the specified encryption library
-    encryptionLibrary->encryptFiles(files);
+    for (std::string& file : files) {
+        std::cout << "Encrypting file: " << file << std::endl;
+        encryptionLibrary->encrypt(file);
+    }
 
     // Decrypt files using the specified encryption library
-    encryptionLibrary->decryptFiles(files);
-
-    // TODO: Perform further operations on the files as needed
+    for (std::string& file : files) {
+        std::cout << "Decrypting file: " << file << std::endl;
+        encryptionLibrary->decrypt(file);
+    }
 }
 
 int main(int argc, char** argv) {
