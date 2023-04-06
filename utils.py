@@ -28,8 +28,8 @@ def error_line(l_r_buffer: int = 40) -> None:
 
 
 # TODO: adjust for lazy inputs
-def batch(iterable: tp.Iterable, n: int = 1) -> tp.Iterable[tp.List]:
-    l = len(iterable)
+def batch(iterable: tp.Iterable, n: int = 1, l: int = None) -> tp.Iterable[tp.List]:
+    l = len(iterable) if l is None else l
     for ndx in range(0, l, n):
         yield iterable[ndx : min(ndx + n, l)]
 
