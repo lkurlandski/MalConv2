@@ -3,14 +3,14 @@
 #include <vector>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "ISortFunction.h"
+#include "isortfunction.h"
 #include "mergesort.h"
 // #include "quicksort.h"
 // #include "heapsort.h"
-#include "IEncryptionLibrary.h"
-#include "OpenSSLEncryption.h"
-// #include "CryptoPPEncryption.h"
-// #include "TomCryptEncryption.h"
+#include "iencryptionlibrary.h"
+#include "opensslencryption.h"
+// #include "cryptoppeencryption.h"
+// #include "tomcryptencryption.h"
 
 
 // Function to check if a given path is a directory
