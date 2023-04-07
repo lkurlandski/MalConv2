@@ -1,5 +1,5 @@
 // cryptoppeencryption.cpp
-#include "cryptopppencryption.h"
+#include "cryptoppencryption.h"
 
 void CryptoPPEncryption::encrypt(std::string& data) {
     // Generate a random key and IV
