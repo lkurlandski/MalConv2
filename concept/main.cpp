@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
     ISortFunction* sortFunction = new MergeSort();
 
     // Create an instance of the OpenSSL encryption library
-    IEncryptionLibrary* encryptionLibrary = new OpenSSLEncryption();
+    IEncryptionLibrary* encryptionLibrary = new CryptoPPEncryption();
 
     // Call the sortAndEncryptFiles function with the specified root path, sorting function, and encryption library
     sortAndEncryptFiles(rootPath, sortFunction, encryptionLibrary);
