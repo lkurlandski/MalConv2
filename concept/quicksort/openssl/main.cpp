@@ -5,8 +5,8 @@
 #include <sys/stat.h>
 #include "..\..\isortfunction.h"
 #include "..\..\quicksort.h"
-#include "..\iencryptionlibrary.h"
-#include "..\opensslencryption.h"
+#include "..\..\iencryptionlibrary.h"
+#include "..\..\opensslencryption.h"
 
 #ifdef _WIN32
 #include <direct.h> // for _mkdir on Windows
