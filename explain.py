@@ -53,7 +53,7 @@ class AttributeParams:
     """
 
     baselines: int = BASELINE
-    feature_mask_mode: tp.Literal["all", ".text"] = None
+    feature_mask_mode: tp.Literal["all", "text"] = None
     feature_mask_size: int = None
     method: str = None
     n_steps: int = None
