@@ -27,11 +27,18 @@ def error_line(l_r_buffer: int = 40) -> None:
     return "-" * l_r_buffer + " ERROR " + "-" * l_r_buffer
 
 
-# TODO: adjust for lazy inputs
-def batch(iterable: tp.Iterable, n: int = 1, l: int = None) -> tp.Iterable[tp.List]:
-    l = len(iterable) if l is None else l
-    for ndx in range(0, l, n):
-        yield iterable[ndx : min(ndx + n, l)]
+def batch(iterable: tp.Iterable, batch_size: int = 1) -> tp.Iterable[tp.List]:
+    iterable = iter(iterable)
+    while True:
+        batch = []
+        for _ in range(batch_size):
+            try:
+                batch.append(next(iterable))
+            except StopIteration:
+                if batch:
+                    yield batch
+                return
+        yield batch
 
 
 def ceil_divide(a: float, b: float) -> int:
