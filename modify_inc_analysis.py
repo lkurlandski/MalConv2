@@ -188,7 +188,14 @@ class Plotter:
         self.ax.set_xlabel(x_label)
         self.ax.set_ylabel(y_label)
         self.ax.set_ylim([y_lim_l, y_lim_u])
+        
         self.ax.legend()
+        self.ax.grid()
+        
+        self.ax.set_yticks(ticks=self.ax.get_yticks()[1:-1], labels=[f"{int(x)}%" for x in self.ax.get_yticks()[1:-1]])
+        self.ax.set_xticks(ticks=self.ax.get_yticks()[1:-1], labels=[f"{int(x)}%" for x in self.ax.get_xticks()[1:-1]])
+    
+        
         return self
 
     def save(self, outfile: Path = "FN_Rate_VS_Bytes_Swapped.png", **kwargs) -> Plotter:
@@ -200,10 +207,17 @@ class Plotter:
         return self
 
 
+class BoxPlotter(Plotter):
+
+    def __call__(self, x: tp.Iterable[float], y: tp.Iterable[float], **kwargs) -> Plotter:
+        return self
+
+
 def compare(
     paths: tp.Iterable[Path], labels: tp.Iterable[str], chunk_size: int
-) -> tp.Tuple[tp.List[Processor], tp.List[Analyzer], tp.Dict[str, tp.Dict[str, Plotter]]]:
+) -> tp.Tuple[tp.List[Processor], tp.List[Analyzer], tp.Dict[str, tp.Dict[str, Plotter]], tp.Dict[str, tp.Dict[str, BoxPlotter]]]:
     plotters = defaultdict(lambda: defaultdict(Plotter))
+    boxplotters = defaultdict(lambda: defaultdict(BoxPlotter))
     processors = []
     analyzers = []
     for path, label in zip(paths, labels):
@@ -213,21 +227,23 @@ def compare(
             for m_2 in analyzer.fn_rates[m_1].keys():
                 x, y = analyzer.fn_rates[m_1][m_2]
                 plotters[m_1][m_2](x, y, label=label)
+                boxplotters[m_1][m_2](x, y, label=label)
         analyzers.append(analyzer)
         processors.append(processor)
 
-    return processors, analyzers, plotters
+    return processors, analyzers, plotters, boxplotters
 
 
 def save_plotters(output_dir: Path, plotters: tp.Dict[str, tp.Dict[str, Plotter]]) -> None:
     output_dir.mkdir(exist_ok=True, parents=True)
     for m_1 in plotters.keys():
         for m_2 in plotters[m_1].keys():
-            title = f"FN Rate vs {m_1.capitalize()} Bytes Swapped ({m_2.capitalize()})"
-            x_label = f"{m_1.capitalize()} Bytes Swapped"
-            outfile = output_dir / f"{m_1}_{m_2}.png"
-            plotters[m_1][m_2].markup(title, x_label)
-            plotters[m_1][m_2].save(outfile, dpi=400)
+            # title = f"FN Rate vs {m_1.capitalize()} Bytes Swapped ({m_2.capitalize()})"
+            # x_label = f"{m_1.capitalize()} Bytes Swapped"
+            stem = f"{m_1}_{m_2}_box" if isinstance(plotters[m_1][m_2], BoxPlotter) else f"{m_1}_{m_2}_plt"
+            outfile = (output_dir / stem).with_suffix(".svg")
+            plotters[m_1][m_2].markup(title="", x_label="", y_label="")
+            plotters[m_1][m_2].save(outfile)
             plotters[m_1][m_2].close()
 
 
@@ -244,8 +260,9 @@ def run(output_root: Path, chunk_size: int) -> None:
         paths = [p for p in paths if p.exists()]
         if not paths:
             continue
-        _, _, plotters = compare(paths, REP_TARGET_MODES, chunk_size)
+        _, _, plotters, boxplotters = compare(paths, REP_TARGET_MODES, chunk_size)
         save_plotters(output_root / "plots" / "target_modes" / s_m, plotters)
+        save_plotters(output_root / "plots" / "target_modes" / s_m, boxplotters)
 
     print(f"Holding target mode constant. Comparing {REP_SOURCE_MODES=}")
     for t_m in REP_TARGET_MODES:
@@ -256,8 +273,9 @@ def run(output_root: Path, chunk_size: int) -> None:
         paths = [p for p in paths if p.exists()]
         if not paths:
             continue
-        _, _, plotters = compare(paths, REP_SOURCE_MODES, chunk_size)
+        _, _, plotters, boxplotters = compare(paths, REP_SOURCE_MODES, chunk_size)
         save_plotters(output_root / "plots" / "source_modes" / t_m, plotters)
+        save_plotters(output_root / "plots" / "target_modes" / s_m, boxplotters)
 
 
 def main():
