@@ -1,4 +1,4 @@
-name: MalConv2
+name: TestEnv
 channels:
   - pytorch
   - anaconda
@@ -185,7 +185,6 @@ dependencies:
   - python-dateutil=2.8.2=pyhd3eb1b0_0
   - python-fastjsonschema=2.16.2=py38h06a4308_0
   - python_abi=3.8=2_cp38
-  - pytorch=1.4.0=py3.8_cuda10.1.243_cudnn7.6.3_0
   - pytz=2022.1=py38h06a4308_0
   - pyyaml=6.0=py38h7f8727e_1
   - pyzmq=23.2.0=py38h6a678d5_0
