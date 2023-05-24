@@ -1,12 +1,11 @@
 # Instructions
 
 1) Fork My Repository and Clone 
-https://github.com/lkurlandski/MalConv2
+[https://github.com/lkurlandski/MalConv2](https://github.com/lkurlandski/MalConv2/tree/capstone)
 
-2) Add the Following Files
+2) Add the Following File
+https://github.com/NeuromorphicComputationResearchProgram/MalConv2
 - malconvGCT_nocat.checkpoint
-- main.py
-- README.md
 
 3) Download and Install Anaconda
 https://www.anaconda.com/products/distribution
