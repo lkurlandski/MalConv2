@@ -14,11 +14,11 @@ https://www.anaconda.com/products/distribution
 3) Setup the Virtual Environment
 ```conda env create -f environment.yml```
 
-4) Install pytorch
-```conda install pytorch==1.4.0 cpuonly -c pytorch```
-
-5) Activate Environment Before Use
+4) Activate Environment Before Use
 ```conda activate MalConv2```
+
+5) Install some other stuff
+```pip install capstone==4.0.2 lief==0.12.2 pefile==2022.5.30```
 
 6) Run main
 
