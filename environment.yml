@@ -1,4 +1,4 @@
-name: TestEnv
+name: MalConv2
 channels:
   - pytorch
   - anaconda
@@ -185,6 +185,7 @@ dependencies:
   - python-dateutil=2.8.2=pyhd3eb1b0_0
   - python-fastjsonschema=2.16.2=py38h06a4308_0
   - python_abi=3.8=2_cp38
+  - pytorch=4.0
   - pytz=2022.1=py38h06a4308_0
   - pyyaml=6.0=py38h7f8727e_1
   - pyzmq=23.2.0=py38h6a678d5_0
@@ -228,9 +229,3 @@ dependencies:
   - zipp=3.8.0=py38h06a4308_0
   - zlib=1.2.13=h5eee18b_0
   - zstd=1.5.2=ha4553b6_0
-  - pip:
-    - capstone==4.0.2
-    - future==0.18.2
-    - lief==0.12.2
-    - pefile==2022.5.30
-prefix: /home/lk3591/miniconda3/envs/MalConv2
