@@ -21,8 +21,7 @@ import pefile
 from torch import Tensor
 from tqdm import tqdm
 
-from utils import Pathlike
-from typing_ import ErrorMode, ExeToolkit
+from typing_ import ErrorMode, ExeToolkit, Pathlike
 
 
 class BadBinaryError(Exception):
