@@ -13,12 +13,13 @@ TODO:
 
 from __future__ import annotations
 from argparse import ArgumentParser
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from configparser import ConfigParser
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from inspect import signature
 from itertools import chain
+import json
 import logging
 import os  # pylint: disable=unused-import
 from pathlib import Path  # pylint: disable=unused-import
@@ -338,30 +339,32 @@ def run(
     forward_function = cl.forward_function_malconv(model, explain_params.softmax)
     layer = None if explain_params.layer is None else getattr(model, explain_params.layer)
     alg = get_explanation_algorithm(explain_params.alg, forward_function, layer)
-    
+
     ben_oh = OutputHelper.from_params(explain_params, control_params, split="ben")
     mal_oh = OutputHelper.from_params(explain_params, control_params, split="mal")
     ben_done = setup_output_dir(ben_oh.output_path, CLEAN, RESUME)
     mal_done = setup_output_dir(mal_oh.output_path, CLEAN, RESUME)
 
     # Benign and malicious files to explain
-    ben_files = [p for p in chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir()) if p.stem not in ben_done]
-    mal_files = [p for p in chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir()) if p.stem not in mal_done]
+    ben_files, mal_files = [], []
+    if BEN:
+        ben_dirs = [Path(p) for p in data_params.good]
+        ben_files = [p for p in chain.from_iterable(d.iterdir() for d in ben_dirs) if p.stem not in ben_done]
+    if MAL:
+        mal_dirs = [Path(p) for p in data_params.bad]
+        mal_files = [p for p in chain.from_iterable(d.iterdir() for d in mal_dirs) if p.stem not in mal_done]
 
-    logging.log(logging.INFO,
-        f"{len(ben_done)=} -- {len(ben_files)=} -- len(WINDOWS)={len(list(chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())))}"
-        f"\n{len(mal_done)=} -- {len(mal_files)=} -- len(SOREL)={len(list(chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())))}"
-    )
+    # logging.log(logging.INFO,
+    #    f"{len(ben_done)=} -- {len(ben_files)=} -- len(WINDOWS)={len(list(chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())))}"
+    #    f"\n{len(mal_done)=} -- {len(mal_files)=} -- len(SOREL)={len(list(chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())))}"
+    # )
 
     # Lower and upper bounds for the text sections of all the files
     if explain_params.attrib_params.feature_mask_mode == "text":
         # TODO: use dict of tuples instead of dict of dict
-        bounds = executable_helper.get_bounds(
-            exe_params.text_section_bounds_file, dict_of_dict=True
-        )
-        bounds = executable_helper.filter_bounds(
-            bounds, max_len=data_params.max_len, dict_of_dict=True
-        )
+        bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file, dict_of_dict=True)
+        # FIXME: introduce a new mechanism to limit the file length?
+        bounds = executable_helper.filter_bounds(bounds, max_len=float("inf"), dict_of_dict=True)
         ben_files = [p for p in ben_files if p.as_posix() in bounds]
         mal_files = [p for p in mal_files if p.as_posix() in bounds]
 
@@ -467,6 +470,7 @@ def analyze(
     exe_params: executable_helper.ExeParams,
     explain_params: ExplainParams,
     control_params: ControlParams,
+    data_params: cl.DataParams,
 ) -> None:
 
     chunk_size = explain_params.attrib_params.feature_mask_size
@@ -477,20 +481,24 @@ def analyze(
 
     def get_data(split: tp.Literal["ben", "mal"], source_files: tp.List[Path]) -> tp.Tuple:
         oh = OutputHelper.from_params(explain_params, control_params, split=split)
-        explained = set(p.name[0:p.name.find(".")] for p in oh.output_path.iterdir())
+        oh.analysis_path.mkdir(exist_ok=True)
+        explained = set(p.name[0 : p.name.find(".")] for p in oh.output_path.iterdir())
         source_files = list(source_files)
-        files = [p for p in source_files if p.name[0:p.name.find(".")] in explained]
+        files = [p for p in source_files if p.name[0 : p.name.find(".")] in explained]
         return (files, oh.output_path, oh.summary_file)
 
     data = []
     if MAL:
-        source_files = chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())
+        mal_dirs = [Path(p) for p in data_params.bad]
+        source_files = list(chain.from_iterable(d.iterdir() for d in mal_dirs))
         data.append(get_data("mal", source_files))
     if BEN:
-        source_files = chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())
+        ben_dirs = [Path(p) for p in data_params.good]
+        source_files = list(chain.from_iterable(d.iterdir() for d in ben_dirs))
         data.append(get_data("ben", source_files))
-    data = list(reversed(data)) if BEN_FIRST else data
 
+    data = list(reversed(data)) if BEN_FIRST else data
+    summary_dict: tp.Dict[str, tp.List[tp.Tuple[int, float]]] = {}
     for files, attribs_path, summary_file in data:
         with open(summary_file, "w") as handle:
             handle.write("file,offset,attribution\n")
@@ -506,31 +514,37 @@ def analyze(
                 continue
 
             if (o := get_offset_chunk_tensor(attribs_text, chunk_size)) != 0:
-                logging.log(logging.WARNING, f"WARNING: attributions have nonzero chunk offset {o=}. Skipping {f.as_posix()}")
+                logging.log(
+                    logging.WARNING, f"WARNING: attributions have nonzero chunk offset {o=}. Skipping {f.as_posix()}"
+                )
 
             chunk_offsets = [o for o in range(0, len(attribs_text), chunk_size)]
             chunk_attribs = attribs_text[chunk_offsets]
             with open(summary_file, "a") as handle:
                 handle.writelines(
-                    [
-                        f"{f.as_posix()},{l_text + i * chunk_size},{a.item()}\n"
-                        for i, a in enumerate(chunk_attribs)
-                    ]
+                    [f"{f.as_posix()},{l_text + i * chunk_size},{a.item()}\n" for i, a in enumerate(chunk_attribs)]
                 )
+            summary_dict[f.as_posix()] = [(l_text + i * chunk_size, a.item()) for i, a in enumerate(chunk_attribs)]
+    with open(summary_file.with_suffix(".json"), "w") as handle:
+        json.dump(summary_dict, handle, indent=4)
 
 
 def parse_config(
     config: ConfigParser,
-) -> tp.Tuple[
-    cl.ModelParams, cl.DataParams, executable_helper.ExeParams, ExplainParams, ControlParams
-]:
+) -> tp.Tuple[cl.ModelParams, cl.DataParams, executable_helper.ExeParams, ExplainParams, ControlParams]:
     p = config["MODEL"]
     model_params = cl.ModelParams(p.get("model_name"))
     p = config["DATA"]
+    good = p.get("good")
+    good = [cl.WINDOWS_TRAIN_PATH, cl.WINDOWS_TEST_PATH] if good is None else [good]
+    bad = p.get("bad")
+    bad = [cl.SOREL_TEST_PATH, cl.SOREL_TEST_PATH] if bad is None else [bad]
     data_params = cl.DataParams(
         max_len=p.getint("max_len"),
         batch_size=p.getint("batch_size"),
         num_workers=p.getint("num_workers"),
+        good=good,
+        bad=bad,
     )
     p = config["EXE"]
     exe_params = executable_helper.ExeParams(p.get("text_section_bounds_file"))
@@ -547,9 +561,7 @@ def parse_config(
         p.getint("target"),
     )
     p = config["EXPLAIN"]
-    explain_params = ExplainParams(
-        p.getboolean("softmax"), p.get("layer"), p.get("alg"), attrib_params
-    )
+    explain_params = ExplainParams(p.getboolean("softmax"), p.get("layer"), p.get("alg"), attrib_params)
     p = config["CONTROL"]
     control_params = ControlParams(
         p.get("output_root"),
@@ -579,7 +591,7 @@ def main(config: ConfigParser, run_: bool, analyze_: bool) -> None:
     if run_:
         run(model_params, data_params, exe_params, explain_params, control_params)
     if analyze_:
-        analyze(exe_params, explain_params, control_params)
+        analyze(exe_params, explain_params, control_params, data_params)
 
 
 if __name__ == "__main__":
