@@ -97,18 +97,22 @@ Mark Mclean <mrmclea@lps.umd.edu>
 Edward Raff <edraff@lps.umd.edu>
 Richard Zak <rzak@lps.umd.edu>
 
-# Malware Explainability and Adversarial Attacks
+# Malware Analysis, and Attacks
 
-## TODO
+## Setup
 
-- Figure out why MalConv GCT throws many errors, eg
-  - Error on 000f87fe6944580a93145218ff1208135eb9a5e2b7fdf7155bb8f8f7325190a8: integer division or modulo by zero
-  - Error on 001ea416b68655b29eee960cdcc222e7d334a9879684f11d7c26761c861ab63c: integer division or modulo by zero
-  - Error on 002da0eff6ddb97f1e7496c55127de1c7c4785f2a13cb05619755c63b1532a62: integer division or modulo by zero
-- Use Neptune to track experiments instead of nested output structure
-- Make command-line interfaces to improve scripting
+The installation process is a bit complicated because some of these libraries do not play nicely together, but here's pretty much all you'll need:
 
+```console
+conda create env -n MalConv2 python=3.8
+conda activate MalCon2
+conda install pytorch==1.4 cudatoolkit=10.1 captum=0.4 lief==0.12 capstone==4.0 pefile==2022.5 scikit-learn=1.1 -c pytorch 
+```
 
-Profiling:
-python -m cProfile -o output.pstats script.py
-gprof2dot --colour-nodes-by-selftime -f pstats output.pstats | dot -Tpng -o output.png
+## Usage
+
+Usage is also a bit complicated at the moment and needs to be documented.
+
+# Todo
+
+- Introduce randomization to the RandomChunk sampler so expected runtime of explain can be mre accurately deduced.
