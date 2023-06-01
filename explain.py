@@ -320,9 +320,7 @@ def setup_output_dir(path: Path, clean: bool, resume: bool) -> tp.Set[str]:
             shutil.rmtree(path)
         elif not resume:
             raise FileExistsError("Use --resume or --clean to continue or remove a previous experiment.")
-    else:
-        path.mkdir(exist_ok=True, parents=True)
-
+    path.mkdir(exist_ok=True, parents=True)
     return set(p.stem for p in path.iterdir())
 
 
@@ -480,6 +478,7 @@ def analyze(
         explained = set(p.name[0:p.name.find(".")] for p in oh.output_path.iterdir())
         source_files = list(source_files)
         files = [p for p in source_files if p.name[0:p.name.find(".")] in explained]
+        oh.analysis_path.mkdir(exist_ok=True)
         return (files, oh.output_path, oh.summary_file)
 
     data = []
@@ -565,6 +564,10 @@ def parse_config(
         p.getboolean("progress_bar"),
         p.getboolean("verbose"),
     )
+
+    if attrib_params.feature_mask_mode == "text" and explain_params.alg == "FeaturePermutation":
+        raise ValueError("FeaturePermutation permutes the same feature for each input, so using feature_mask_mode='text' does not make sense.")
+
     return model_params, data_params, exe_params, explain_params, control_params
 
 

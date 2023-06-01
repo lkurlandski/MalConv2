@@ -128,8 +128,8 @@ def get_dataset_and_loader(
     if shuffle_ and sort_by_size:
         raise ValueError("Specifying both shuffle_ and sort_by_size does not make sense.")
     dataset = BinaryDataset(good, bad, sort_by_size, max_len, shuffle_)
-    if num_workers is None:
-        num_workers = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1)
+    num_workers = 0 if num_workers is None else num_workers
+    num_workers = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1) if num_workers == -1 else num_workers
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
