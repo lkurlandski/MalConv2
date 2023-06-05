@@ -321,9 +321,7 @@ def setup_output_dir(path: Path, clean: bool, resume: bool) -> tp.Set[str]:
             shutil.rmtree(path)
         elif not resume:
             raise FileExistsError("Use --resume or --clean to continue or remove a previous experiment.")
-    else:
-        path.mkdir(exist_ok=True, parents=True)
-
+    path.mkdir(exist_ok=True, parents=True)
     return set(p.stem for p in path.iterdir())
 
 
@@ -354,39 +352,14 @@ def run(
         mal_dirs = [Path(p) for p in data_params.bad]
         mal_files = [p for p in chain.from_iterable(d.iterdir() for d in mal_dirs) if p.stem not in mal_done]
 
-    # logging.log(logging.INFO,
-    #    f"{len(ben_done)=} -- {len(ben_files)=} -- len(WINDOWS)={len(list(chain(cl.WINDOWS_TRAIN_PATH.iterdir(), cl.WINDOWS_TEST_PATH.iterdir())))}"
-    #    f"\n{len(mal_done)=} -- {len(mal_files)=} -- len(SOREL)={len(list(chain(cl.SOREL_TRAIN_PATH.iterdir(), cl.SOREL_TEST_PATH.iterdir())))}"
-    # )
-
     # Lower and upper bounds for the text sections of all the files
     if explain_params.attrib_params.feature_mask_mode == "text":
         # TODO: use dict of tuples instead of dict of dict
         bounds = executable_helper.get_bounds(exe_params.text_section_bounds_file, dict_of_dict=True)
-        # FIXME: introduce a new mechanism to limit the file length?
+        # TODO: introduce a new mechanism to limit the file length?
         bounds = executable_helper.filter_bounds(bounds, max_len=float("inf"), dict_of_dict=True)
         ben_files = [p for p in ben_files if p.as_posix() in bounds]
         mal_files = [p for p in mal_files if p.as_posix() in bounds]
-
-    # Keep the benign and malicious data separate, so it can be placed in different directories
-    ben_dataset, ben_loader = cl.get_dataset_and_loader(
-        ben_files,
-        None,
-        max_len=data_params.max_len,
-        batch_size=data_params.batch_size,
-        num_workers=data_params.num_workers,
-        shuffle_=False,
-        sort_by_size=True,
-    )
-    mal_dataset, mal_loader = cl.get_dataset_and_loader(
-        None,
-        mal_files,
-        max_len=data_params.max_len,
-        batch_size=data_params.batch_size,
-        num_workers=data_params.num_workers,
-        shuffle_=False,
-        sort_by_size=True,
-    )
 
     # Malicious start idx
     if control_params.mal_start_idx is not None:
@@ -401,31 +374,44 @@ def run(
     if control_params.ben_end_idx is not None:
         control_params.ben_end_batch = control_params.ben_end_idx // data_params.batch_size
 
-    # Conglomerate the different data structures
-    data = [
-        (
-            mal_dataset,
+    data = []
+    if MAL and mal_files:
+        mal_loader, mal_batched_files = cl.get_loader_and_files(
+            None,
+            mal_files,
+            max_len=data_params.max_len,
+            batch_size=data_params.batch_size,
+        )
+        data.append((
             mal_loader,
+            mal_batched_files,
             mal_oh,
             control_params.mal_start_batch,
             control_params.mal_end_batch,
-        ),
-        (
-            ben_dataset,
+        ))
+    if BEN and ben_files:
+        ben_loader, ben_batched_files = cl.get_loader_and_files(
+            ben_files,
+            None,
+            max_len=data_params.max_len,
+            batch_size=data_params.batch_size,
+        )
+        data.append((
             ben_loader,
+            ben_batched_files,
             ben_oh,
             control_params.ben_start_batch,
             control_params.ben_end_batch,
-        ),
-    ]
+        ))
+
+    # Conglomerate the different data structures
     data = list(reversed(data)) if BEN_FIRST else data
 
     # Run the explanation algorithm on each dataset
-    for dataset, loader, oh, start, end in data:
-        files = batch([Path(e[0]) for e in dataset.all_files], data_params.batch_size)
-        gen = zip(loader, files)
+    for loader, batched_files, oh, start, end in data:
+        gen = zip(loader, batched_files)
         initial = 0
-        total = ceil_divide(len(dataset), data_params.batch_size)
+        total = len(batched_files)
         gen = tqdm(gen, total=total, initial=initial) if control_params.progress_bar else gen
         logging.log(logging.INFO, f"Starting explanations: {initial=}, {start=}, {end=}, {total=} @{datetime.now()}")
         for i, ((inputs, targets), files) in enumerate(gen):

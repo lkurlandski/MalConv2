@@ -3,6 +3,7 @@ from collections import deque
 import typing as tp
 from pathlib import Path
 from collections.abc import Iterable
+import math
 
 import random
 import numpy as np
@@ -38,7 +39,7 @@ class BinaryDataset(data.Dataset):
             max_len=4000000,
             shuffle=False
     ):
-        
+
         #Tuple (file_path, label, file_size)
         self.all_files = []
         self.max_len = max_len
@@ -69,9 +70,9 @@ class BinaryDataset(data.Dataset):
         return len(self.all_files)
 
     def __getitem__(self, index):
-        
+
         to_load, y, _ = self.all_files[index]
-        
+
         try:
             with gzip.open(to_load, 'rb') as f:
                 x = f.read(self.max_len)
@@ -85,40 +86,53 @@ class BinaryDataset(data.Dataset):
                 #Need to use frombuffer b/c its a byte array, otherwise np.asarray will get wonked on trying to convert to ints
                 #So decode as uint8 (1 byte per value), and then convert
                 x = np.frombuffer(x, dtype=np.uint8).astype(np.int16)+1 #index 0 will be special padding index
-            
+
         #x = np.pad(x, self.max_len-x.shape[0], 'constant')    
         x = torch.tensor(x)
 
         return x, torch.tensor([y])
-    
+
 class RandomChunkSampler(torch.utils.data.sampler.Sampler):
     """
     Samples random "chunks" of a dataset, so that items within a chunk are always loaded together. Useful to keep chunks in similar size groups to reduce runtime. 
     """
-    def __init__(self, data_source, batch_size, random=True):
+    def __init__(self, data_source, batch_size, randomize: bool = True, largest_first: bool = True):
         """
         data_source: the souce pytorch dataset object
         batch_size: the size of the chunks to keep together. Should generally be set to the desired batch size during training to minimize runtime. 
         """
         self.data_source = data_source
         self.batch_size = batch_size
-        self.random = random
-        
+        self.order = [i for i in range(math.ceil(len(self.data_source) / self.batch_size))]
+        if randomize:
+            self.shuffle()
+
+        self.largest_first = largest_first
+
+    def shuffle(self):
+        random.shuffle(self.order)
+
     def __iter__(self):
         n = len(self.data_source)
-        
+
         data = [x for x in range(n)]
 
         # Create blocks
-        blocks = [data[i:i+self.batch_size] for i in range(0,len(data),self.batch_size)]
-        # shuffle the blocks
-        if self.random:
-            random.shuffle(blocks)
+        blocks = [data[i:i+self.batch_size] for i in range(0, len(data), self.batch_size)]
+        if self.largest_first:
+            block_with_largest_files = blocks[-1]
+        # shuffle the blocks (or dont if self.order is an ordered list)
+        blocks = [blocks[i] for i in self.order]
+        if self.largest_first:
+            for i, b in enumerate(blocks):
+                if b == block_with_largest_files:
+                    break
+            blocks.insert(0, blocks.pop(i))
+
         # concatenate the shuffled blocks
         data[:] = [b for bs in blocks for b in bs]
-        
         return iter(data)
-        
+
     def __len__(self):
         return len(self.data_source)
     
@@ -131,9 +145,9 @@ def pad_collate_func(batch):
     """
     vecs = [x[0] for x in batch]
     labels = [x[1] for x in batch]
-    
+
     x = torch.nn.utils.rnn.pad_sequence(vecs, batch_first=True)
     #stack will give us (B, 1), so index [:,0] to get to just (B)
     y = torch.stack(labels)[:,0]
-    
+
     return x, y
