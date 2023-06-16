@@ -106,37 +106,25 @@ def get_model(model_name: ModelName, verbose: bool = False) -> MalConvLike:
     return model
 
 
-# TODO: attempt to integrate the RandomChunkSampler
-def get_dataset_and_loader(
+def get_loader_and_files(
     good: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
     bad: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
     max_len: int = MAX_LEN,
     batch_size: int = BATCH_SIZE,
-    num_workers: int = None,
-    shuffle_: bool = False,
-    sort_by_size: bool = True,
-) -> tp.Tuple[BinaryDataset, DataLoader]:
+) -> tp.Tuple[BinaryDataset, DataLoader, tp.List[Path]]:
     """
-    Return a Dataset and a DataLoader.
-
-    Even when shuffled, the DataLoader will yield data that corresponds to the
-    BinaryDataset's all_files attribute. Using the RandomChunkSampler will
-    break this correspondence, so it is unused.
-
-    Use num_workers=0 when debugging. This resolves a PyCharm issue: ``Frame unavailable''.
+    Return a data loader and the batched files that correspond to it.
     """
-    if shuffle_ and sort_by_size:
-        raise ValueError("Specifying both shuffle_ and sort_by_size does not make sense.")
-    dataset = BinaryDataset(good, bad, sort_by_size, max_len, shuffle_)
-    num_workers = 0 if num_workers is None else num_workers
-    num_workers = max(mp.cpu_count() - 4, mp.cpu_count() // 2 + 1) if num_workers == -1 else num_workers
+    dataset = BinaryDataset(good, bad, True, max_len)
+    sampler = RandomChunkSampler(dataset, batch_size, True)
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
-        num_workers=num_workers,
         collate_fn=pad_collate_func,
+        sampler=sampler,
     )
-    return dataset, loader
+    files = list(batch([Path(dataset.all_files[i][0]) for i in iter(sampler)], batch_size))
+    return loader, files
 
 
 def _get_datasets(
