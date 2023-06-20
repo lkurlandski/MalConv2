@@ -615,3 +615,4 @@ if __name__ == "__main__":
     print(BEN, MAL)
     main(config, args.run, args.analyze)
     logging.log(logging.INFO, section_header(f"END @{datetime.now()}"))
+

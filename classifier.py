@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import json
 import logging
 import multiprocessing as mp
+import os
 from pathlib import Path
 import typing as tp
 
@@ -122,6 +123,7 @@ def get_loader_and_files(
         batch_size=batch_size,
         collate_fn=pad_collate_func,
         sampler=sampler,
+        n_workers=len(os.sched_getaffinity(0)),
     )
     files = list(batch([Path(dataset.all_files[i][0]) for i in iter(sampler)], batch_size))
     return loader, files
