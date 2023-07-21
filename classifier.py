@@ -117,13 +117,13 @@ def get_loader_and_files(
     Return a data loader and the batched files that correspond to it.
     """
     dataset = BinaryDataset(good, bad, True, max_len)
-    sampler = RandomChunkSampler(dataset, batch_size, True)
+    sampler = RandomChunkSampler(dataset, batch_size, False, True)
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
         collate_fn=pad_collate_func,
         sampler=sampler,
-        n_workers=len(os.sched_getaffinity(0)),
+        num_workers=len(os.sched_getaffinity(0)),
     )
     files = list(batch([Path(dataset.all_files[i][0]) for i in iter(sampler)], batch_size))
     return loader, files
