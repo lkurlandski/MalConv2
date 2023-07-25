@@ -149,9 +149,10 @@ def main(
 
     if isinstance(files, Path):
         files = list(files.iterdir())
-    if isinstance(boundaries, Path):
+    if isinstance(boundaries, Path):  # Assumes a FunctionBoundaryMapper...
         with open(boundaries) as fp:
             boundaries = json.load(fp)
+        boundaries = {k: list(v.values()) for k, v in boundaries.items()}
 
     model = cl.get_model("gct")
     forward_function = cl.forward_function_malconv(model, False)
