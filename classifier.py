@@ -112,12 +112,21 @@ def get_loader_and_files(
     bad: tp.Optional[tp.Union[Pathlike, tp.Iterable[Pathlike]]],
     max_len: int = MAX_LEN,
     batch_size: int = BATCH_SIZE,
+    group_by_size: bool = True,
+    largest_first: bool = False,
 ) -> tp.Tuple[BinaryDataset, DataLoader, tp.List[Path]]:
     """
     Return a data loader and the batched files that correspond to it.
+
+    Args:
+        group_by_size: if True, will group into batches of similar sized files
+        largest_first: if True, the largest batch of files will be yielded first
+            note, only the first largest batch will be yielded first,
+            not every subsequent batch. After the largest batch is yielded first,
+            subsequent batches will be yielded randomly.
     """
-    dataset = BinaryDataset(good, bad, True, max_len)
-    sampler = RandomChunkSampler(dataset, batch_size, False, True)
+    dataset = BinaryDataset(good, bad, group_by_size, max_len)
+    sampler = RandomChunkSampler(dataset, batch_size, False, largest_first)
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
