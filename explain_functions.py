@@ -188,7 +188,6 @@ def cli():
     parser.add_argument("--outpath", type=Path)
     parser.add_argument("--path_to_files", type=Path)
     parser.add_argument("--path_to_boundaries", type=Path)
-    parser.add_argument("--alg", type=str, choices=["KernelShap", "FeatureAblation"])
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
     parser.add_argument("--max_len", type=int, default=MAX_LEN)
     args = parser.parse_args()
@@ -197,7 +196,6 @@ def cli():
         args.outpath,
         args.path_to_files,
         args.path_to_boundaries,
-        args.alg,
         args.batch_size,
         args.max_len,
     )
@@ -205,5 +203,4 @@ def cli():
 
 if __name__ == "__main__":
     cfg.init("cuda:0")
-    debug()
     cli()
