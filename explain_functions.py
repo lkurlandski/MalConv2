@@ -126,8 +126,9 @@ class FunctionLevelExplainer:
 
     def analyze(self) -> None:
         lower_upper_attr = {}
-        for f in list(self.attribs_path.iterdir()):
+        for f in tqdm(list(self.attribs_path.iterdir())):
             attrib = torch.load(f)  # attrib is not for entire binary
+            attrib.to(torch.float32)  # we need 32 bit float to do arithmetic
             boundary = self.boundaries[f.name.strip(".pt")]  # true function offsets
             lower, upper = lower_and_upper_bounds(boundary)  # maps true to attrib
             l_u_a = []
@@ -168,7 +169,7 @@ def main(
         max_len,
     )
 
-    explainer.explain()
+    #explainer.explain()
     explainer.analyze()
 
 
